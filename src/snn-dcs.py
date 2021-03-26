@@ -18,7 +18,9 @@ import os.path
 import time
 import pathlib
 from dcs_data_generator import DataGeneratorDCS
+import logging
 
+logger = logging.getLogger("SNN-DCS")
 
 def load_hdf5(vecfile, start_offset, chunk_size):
     """reads training sentences(list of int array) from a hdf5 file"""
@@ -112,8 +114,9 @@ def generate_model(embedding_size, number_tokens, sentence_length, hinge_loss_ma
 def load_weights(model, path):
     if os.path.isfile(path+'/snn_dcs_weights.index'):
         model.load_weights(path+'/snn_dcs_weights')
-        print("Weights loaded!")
-
+        logger.info("Weights loaded!")
+    else:
+        logger.warning("Warning! No weights loaded!")
 
 # n >= 1
 def get_top_n(n, results):
@@ -127,12 +130,12 @@ def get_top_n(n, results):
 def train(trainig_model, training_set_generator, valid_set_generator, weights_path, batch_size=32):
     trainig_model.fit(training_set_generator, epochs=1, validation_data=valid_set_generator, batch_size=batch_size)
     trainig_model.save_weights(weights_path)
-    print("Model saved!")
+    logger.info("Model saved!")
 
 
 def test(data_path, code_embedding_model, desc_embedding_model, results_path, longer_sentence, data_batch):
 
-    print("Starting tests")
+    logger.info("Starting tests!")
     
     test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 10000)
     test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 10000)
@@ -195,7 +198,7 @@ def test(data_path, code_embedding_model, desc_embedding_model, results_path, lo
     print(top_3)
     print(top_5)
 
-    name = results_path+"/results-ssn-dcs-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
+    name = results_path+"/results-snn-dcs-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
 
     f = open(name, "a")
 
@@ -216,7 +219,7 @@ def training_data_chunk(id, valid_perc, chunk_size):
 if __name__ == "__main__":
     script_path = str(pathlib.Path(__file__).parent)
 
-    print("Running SNN Model")
+    logger.info("Running SNN Model")
 
     # dataset info
     total_length = 18223872
@@ -248,13 +251,13 @@ if __name__ == "__main__":
 
     init_trainig, init_valid, end_valid = training_data_chunk(data_chunk_id, 0.8, chunk_size)
 
-    print("Training model with chunk number ", data_chunk_id, " of ", number_chunks)
+    logger.info("Training model with chunk number " + str(data_chunk_id) + " of " + str(number_chunks))
 
     batch_size = 64 * 2
-    #training_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_sentence, longer_sentence)
-    #valid_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_valid, end_valid, longer_sentence, longer_sentence)
+    training_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_sentence, longer_sentence)
+    valid_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_valid, end_valid, longer_sentence, longer_sentence)
 
     #train(training_model, training_set_generator, valid_set_generator, script_path+"/../weights/snn_dcs_weights", batch_size)
 
-    test(data_path, embedding_model, embedding_model, script_path+"/../results", longer_sentence, data_chunk_id)
+    #test(data_path, embedding_model, embedding_model, script_path+"/../results", longer_sentence, data_chunk_id)
 
