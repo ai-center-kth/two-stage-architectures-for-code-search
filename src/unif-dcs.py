@@ -6,6 +6,9 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 #subprocess.check_call([sys.executable, "-m", "pip", "install", "pickle5"])
 
 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
+
 # import pickle5 as pickle
 import tensorflow as tf
 from tensorflow.keras import backend as K
