@@ -17,39 +17,14 @@ import numpy as np
 import os.path
 import time
 import pathlib
+
 from dcs_data_generator import DataGeneratorDCS
+from src.help import *
+
+import logging
 
 
-def load_hdf5(vecfile, start_offset, chunk_size):
-    """reads training sentences(list of int array) from a hdf5 file"""
-    table = tables.open_file(vecfile)
-    data = table.get_node('/phrases')[:].astype(np.int)
-    index = table.get_node('/indices')[:]
-    data_len = index.shape[0]
-    if chunk_size == -1:  # if chunk_size is set to -1, then, load all data
-        chunk_size = data_len
-    start_offset = start_offset % data_len
-    sents = []
-    for offset in tqdm(range(start_offset, start_offset + chunk_size)):
-        offset = offset % data_len
-        len, pos = index[offset]['length'], index[offset]['pos']
-        sents.append(data[pos:pos + len])
-    table.close()
-    return sents
-
-
-def pad(data, len=None):
-    from tensorflow.keras.preprocessing.sequence import pad_sequences
-    return pad_sequences(data, maxlen=len, padding='post', truncating='post', value=0)
-
-
-def load_pickle(filename):
-    return pickle.load(open(filename, 'rb'))
-
-
-def main(argv):
-    print(argv)
-
+logger = logging.getLogger("UNIF-DCS")
 
 def get_dataset_meta():
     # 18223872 (len) #1000000
@@ -231,7 +206,7 @@ def training_data_chunk(id, valid_perc, chunk_size):
 if __name__ == "__main__":
     script_path = str(pathlib.Path(__file__).parent)
 
-    print("UNIF Model")
+    logger.info("UNIF Model")
 
     # dataset info
     total_length = 18223872
