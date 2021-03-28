@@ -18,11 +18,7 @@ import os.path
 import time
 import pathlib
 from dcs_data_generator import DataGeneratorDCS
-import logging
 from help import *
-
-logger = logging.getLogger("SNN-DCS")
-
 
 def get_dataset_meta():
     # 18223872 (len) #1000000
@@ -85,9 +81,9 @@ def generate_model(embedding_size, number_tokens, sentence_length, hinge_loss_ma
 def load_weights(model, path):
     if os.path.isfile(path+'/snn_dcs_weights.index'):
         model.load_weights(path+'/snn_dcs_weights')
-        logger.info("Weights loaded!")
+        print("Weights loaded!")
     else:
-        logger.warning("Warning! No weights loaded!")
+        print("Warning! No weights loaded!")
 
 # n >= 1
 def get_top_n(n, results):
@@ -190,7 +186,7 @@ def training_data_chunk(id, valid_perc, chunk_size):
 if __name__ == "__main__":
     script_path = str(pathlib.Path(__file__).parent)
 
-    logger.info("Running SNN Model")
+    print("Running SNN Model")
 
     # dataset info
     total_length = 18223872
@@ -216,13 +212,14 @@ if __name__ == "__main__":
     #strategy = tf.distribute.MirroredStrategy()
     #with strategy.scope():
 
+    print("Building model and loading weights")
     training_model, embedding_model = generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
 
     load_weights(training_model, script_path+"/../weights")
 
     init_trainig, init_valid, end_valid = training_data_chunk(data_chunk_id, 0.8, chunk_size)
 
-    logger.info("Training model with chunk number " + str(data_chunk_id) + " of " + str(number_chunks))
+    print("Training model with chunk number " + str(data_chunk_id) + " of " + str(number_chunks))
 
     batch_size = 64 * 2
     training_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_sentence, longer_sentence)

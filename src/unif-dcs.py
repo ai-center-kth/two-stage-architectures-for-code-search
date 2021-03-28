@@ -21,10 +21,6 @@ import pathlib
 from dcs_data_generator import DataGeneratorDCS
 from help import *
 
-import logging
-
-
-logger = logging.getLogger("UNIF-DCS")
 
 def get_dataset_meta():
     # 18223872 (len) #1000000
@@ -206,7 +202,7 @@ def training_data_chunk(id, valid_perc, chunk_size):
 if __name__ == "__main__":
     script_path = str(pathlib.Path(__file__).parent)
 
-    logger.info("UNIF Model")
+    print("UNIF Model")
 
     # dataset info
     total_length = 18223872
@@ -228,10 +224,10 @@ if __name__ == "__main__":
     longer_code, longer_desc, number_code_tokens, number_desc_tokens = get_dataset_meta_hardcoded()
     embedding_size = 2048
 
-    #strategy = tf.distribute.MirroredStrategy()
-    #with strategy.scope():
-
-    training_model, model_code, model_query = generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
+    print("Building model and loading weights")
+    strategy = tf.distribute.MirroredStrategy()
+    with strategy.scope():
+        training_model, model_code, model_query = generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
 
     load_weights(training_model, script_path+"/../weights")
 
@@ -240,10 +236,10 @@ if __name__ == "__main__":
     print("Training model with chunk number ", data_chunk_id, " of ", number_chunks)
 
     batch_size = 64 * 2
-    #training_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_code, longer_desc)
-    #valid_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_valid, end_valid, longer_code, longer_desc)
+    training_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_code, longer_desc)
+    valid_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_valid, end_valid, longer_code, longer_desc)
 
-    #train(training_model, training_set_generator, valid_set_generator, script_path+"/../weights/unif_dcs_weights", batch_size)
+    train(training_model, training_set_generator, valid_set_generator, script_path+"/../weights/unif_dcs_weights", batch_size)
 
-    test(data_path, model_code, model_query, script_path+"/../results", longer_code, longer_desc, data_chunk_id)
+    #test(data_path, model_code, model_query, script_path+"/../results", longer_code, longer_desc, data_chunk_id)
 
