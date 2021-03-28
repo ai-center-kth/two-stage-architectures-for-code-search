@@ -19,7 +19,7 @@ import time
 import pathlib
 
 from dcs_data_generator import DataGeneratorDCS
-from src.help import *
+from help import *
 
 import logging
 

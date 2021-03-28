@@ -19,7 +19,7 @@ import time
 import pathlib
 from dcs_data_generator import DataGeneratorDCS
 import logging
-from src.help import *
+from help import *
 
 logger = logging.getLogger("SNN-DCS")
 
