@@ -13,7 +13,7 @@ import pickle
 import sys
 import tables
 from tqdm import tqdm
-import numpy as np
+
 import os.path
 import time
 import pathlib
