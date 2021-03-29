@@ -120,60 +120,28 @@ def train(trainig_model, training_set_generator, valid_set_generator, weights_pa
     print("Model saved!")
 
 
-def test(data_path, code_embedding_model, desc_embedding_model, results_path, code_length, desc_length, batch_id):
-
-    # 10000
+def test(data_path, cos_model, results_path, code_length, desc_length, batch_id):
     test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 10000)
     test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 10000)
 
     test_tokens = pad(test_tokens, code_length)
     test_desc = pad(test_desc, desc_length)
 
-    code_embeddings = []
-    for idx, code_test in enumerate(test_tokens):
-
-        code_rep = code_embedding_model.predict(code_test.reshape((1, -1)))
-
-        code_embeddings.append(code_rep)
-
-    desc_embeddings = []
-    for idx, desc_test in enumerate(test_desc):
-
-        desc_rep = desc_embedding_model.predict(desc_test.reshape((1, -1)))
-
-        desc_embeddings.append(desc_rep)
-
     results = {}
-    pbar = tqdm(total=len(desc_embeddings))
+    pbar = tqdm(total=len(test_desc))
 
-    for rowid, testvalue in enumerate(desc_embeddings):
+    for rowid, desc in enumerate(test_desc):
+        expected_best_result = cos_model.predict([test_tokens[rowid].reshape((1, -1)), test_desc[rowid].reshape((1, -1))])[0][0]
 
-        expected_best_result = \
-            tf.keras.layers.Dot(axes=1, normalize=True)([code_embeddings[rowid], desc_embeddings[rowid]]).numpy()[0][0]
+        deleted_tokens = np.delete(test_tokens, rowid, 0)
 
-        count = 0
+        tiled_desc = np.tile(desc, (deleted_tokens.shape[0], 1))
 
-        # here we count the number of results with greater similarity with the expected best result
-        for codeidx, codevalue in enumerate(code_embeddings):
+        ress = cos_model.predict([deleted_tokens, tiled_desc])
 
-            if not rowid == codeidx:
-
-                new_result = \
-                    tf.keras.layers.Dot(axes=1, normalize=True)(
-                        [code_embeddings[codeidx], desc_embeddings[rowid]]).numpy()[
-                        0][0]
-
-                if new_result > expected_best_result:
-                    count += 1
-
-            # This break speeds up the process. Change the number if you want bigger "TopN results"
-            if count > 5:
-                break
+        results[rowid] = len(ress[ress > expected_best_result])
 
         pbar.update(1)
-
-        results[rowid] = count
-
     pbar.close()
 
     top_1 = get_top_n(1, results)
@@ -191,6 +159,7 @@ def test(data_path, code_embedding_model, desc_embedding_model, results_path, co
     f.write("batch,top1,top3,top5\n")
     f.write(str(batch_id)+","+str(top_1) + "," + str(top_3) + "," + str(top_5) + "\n")
     f.close()
+
 
 
 def training_data_chunk(id, valid_perc, chunk_size):
@@ -232,17 +201,17 @@ if __name__ == "__main__":
     with strategy.scope():
         training_model, model_code, model_query = generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
 
-    load_weights(training_model, script_path+"/../weights")
+        load_weights(training_model, script_path+"/../weights")
 
-    init_trainig, init_valid, end_valid = training_data_chunk(data_chunk_id, 0.8, chunk_size)
+    init_trainig, init_valid, end_valid = training_data_chunk(data_chunk_id, 0.9, chunk_size)
 
     print("Training model with chunk number ", data_chunk_id, " of ", number_chunks)
 
-    batch_size = 64 * 2
-    training_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_code, longer_desc)
-    valid_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_valid, end_valid, longer_code, longer_desc)
+    #batch_size = 64 * 2
+    #training_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_code, longer_desc)
+    #valid_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_valid, end_valid, longer_code, longer_desc)
 
-    train(training_model, training_set_generator, valid_set_generator, script_path+"/../weights/unif_dcs_weights", batch_size)
+    #train(training_model, training_set_generator, valid_set_generator, script_path+"/../weights/unif_dcs_weights", batch_size)
 
-    #test(data_path, model_code, model_query, script_path+"/../results", longer_code, longer_desc, data_chunk_id)
+    test(data_path, model_code, model_query, script_path+"/../results", longer_code, longer_desc, data_chunk_id)
 
