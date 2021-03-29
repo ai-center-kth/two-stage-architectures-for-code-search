@@ -95,7 +95,7 @@ def generate_model(embedding_size, number_code_tokens, number_desc_tokens, code_
     training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
     # y_true-y_true avoids warning
 
-    return training_model, model_code, model_query
+    return training_model, model_code, model_query, cos_model
 
 
 def load_weights(model, path):
@@ -199,7 +199,7 @@ if __name__ == "__main__":
     print("Building model and loading weights")
     strategy = tf.distribute.MirroredStrategy()
     with strategy.scope():
-        training_model, model_code, model_query = generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
+        training_model, model_code, model_query, cos_model = generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
 
         load_weights(training_model, script_path+"/../weights")
 
@@ -213,5 +213,5 @@ if __name__ == "__main__":
 
     #train(training_model, training_set_generator, valid_set_generator, script_path+"/../weights/unif_dcs_weights", batch_size)
 
-    test(data_path, model_code, model_query, script_path+"/../results", longer_code, longer_desc, data_chunk_id)
+    test(data_path, cos_model, script_path+"/../results", longer_code, longer_desc, data_chunk_id)
 
