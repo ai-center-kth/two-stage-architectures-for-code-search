@@ -80,12 +80,6 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
 
         negative_description_vector = self.tokenize(negative_description_vector)
 
-        print(np.zeros((self.batch_size, self.code_length)))
-        print("###############################################")
-        print(np.array(code))
-        print(np.array(desc))
-        print(np.array(negative_description_vector))
-
         results = np.zeros((self.batch_size, 1))
 
         return [np.array(code), np.array(desc), np.array(negative_description_vector)], results
