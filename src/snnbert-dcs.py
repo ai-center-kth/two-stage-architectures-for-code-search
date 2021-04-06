@@ -3,13 +3,17 @@ import sys
 
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "pickle5"])
+subprocess.check_call([sys.executable, "-m", "pip", "install", "pickle5"])
+subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 
-# import pickle5 as pickle
+import pickle5 as pickle
+import pickle
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
+
 import tensorflow as tf
 from tensorflow.keras import backend as K
-import pickle
 import sys
 import tables
 from tqdm import tqdm
@@ -49,6 +53,7 @@ def get_dataset_meta_hardcoded():
 def generate_model(embedding_size, number_tokens, sentence_length, hinge_loss_margin):
 
     encoder = TFBertModel.from_pretrained("bert-base-uncased")
+    encoder.trainable = False
 
     input_ids = tf.keras.Input(shape=(sentence_length,), dtype=tf.int32)
     #token_type_ids = tf.keras.Input(shape=(sentence_length,), dtype=tf.int32)
@@ -57,7 +62,7 @@ def generate_model(embedding_size, number_tokens, sentence_length, hinge_loss_ma
     embedding_layer = encoder(
         input_ids)[0]
 
-    #attention_layer = tf.keras.layers.Attention(name="attention")([embedding_layer, embedding_layer])
+    attention_layer = tf.keras.layers.Attention(name="attention")([embedding_layer, embedding_layer])
 
     sum_layer = tf.keras.layers.Lambda(lambda x: K.sum(x, axis=1), name="sum")(embedding_layer)
     # average_layer = tf.keras.layers.Lambda(lambda x: K.mean(x, axis=1), name="average")( attention_layer)
@@ -181,7 +186,7 @@ if __name__ == "__main__":
 
     # dataset info
     total_length = 18223872
-    chunk_size = 1 #100
+    chunk_size = 9111936 #1000000
 
     number_chunks = total_length/chunk_size - 1
     number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
@@ -211,7 +216,7 @@ if __name__ == "__main__":
 
     print("Training model with chunk number " + str(data_chunk_id) + " of " + str(number_chunks))
 
-    batch_size = 32
+    batch_size = 32 * 2
 
     merged = load_pickle(data_path+"vocab.merged.pkl")
     vocab = {y: x for x, y in merged.items()}

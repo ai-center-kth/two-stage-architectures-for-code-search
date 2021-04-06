@@ -1,5 +1,5 @@
 
-import pickle
+import pickle5 as pickle
 import tables
 from tqdm import tqdm
 import numpy as np
