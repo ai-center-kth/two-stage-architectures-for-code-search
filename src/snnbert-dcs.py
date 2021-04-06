@@ -41,7 +41,9 @@ def get_dataset_meta():
 
 
 def get_dataset_meta_hardcoded():
-    return 410, 13645
+    longer_sentence = 64
+    number_tokens = None
+    return longer_sentence, number_tokens
 
 
 def generate_model(embedding_size, number_tokens, sentence_length, hinge_loss_margin):
@@ -179,7 +181,7 @@ if __name__ == "__main__":
 
     # dataset info
     total_length = 18223872
-    chunk_size = 18223872 #1000000
+    chunk_size = 1 #100
 
     number_chunks = total_length/chunk_size - 1
     number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
@@ -194,13 +196,12 @@ if __name__ == "__main__":
     data_path = script_path+"/../data/deep-code-search/processed/"
 
     longer_sentence, number_tokens = get_dataset_meta_hardcoded()
-    embedding_size = 2048
+    embedding_size = None
 
     #tf.debugging.set_log_device_placement(True)
 
-    #strategy = tf.distribute.MirroredStrategy()
-    #with strategy.scope():
-    with tf.device("/cpu:0"):
+    strategy = tf.distribute.MirroredStrategy()
+    with strategy.scope():
 
         print("Building model and loading weights")
         training_model, embedding_model, cos_model = generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
@@ -210,15 +211,14 @@ if __name__ == "__main__":
 
     print("Training model with chunk number " + str(data_chunk_id) + " of " + str(number_chunks))
 
-    batch_size = 64 * 2
+    batch_size = 32
+
     merged = load_pickle(data_path+"vocab.merged.pkl")
     vocab = {y: x for x, y in merged.items()}
 
-    tokenizer = transformers.RobertaTokenizer.from_pretrained("microsoft/codebert-base")
+    tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-uncased") #RobertaTokenizer.from_pretrained("microsoft/codebert-base")
 
     training_set_generator = DataGeneratorDCSBERT(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_sentence, longer_sentence, tokenizer, vocab)
-
-    print(training_set_generator.test(0))
 
     #valid_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_valid, end_valid, longer_sentence, longer_sentence)
 

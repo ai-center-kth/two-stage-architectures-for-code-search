@@ -54,48 +54,59 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
             encoded_code = self.tokenizer.batch_encode_plus(
                 [" ".join([self.vocab[x] for x in extracted_code])],
                 add_special_tokens=True,
-                max_length=300,
+                max_length=self.code_length,
                 # return_attention_mask=True,
                 # return_token_type_ids=True,
                 pad_to_max_length=self.code_length,
                 return_tensors="tf",
             )
 
-            code.append(encoded_code["input_ids"])
+            code.append(" ".join([self.vocab[x] for x in extracted_code]))
 
             # Desc
             len, pos = self.desc_index[offset]['length'], self.desc_index[offset]['pos']
             extracted_desc = self.desc_data[pos:pos + len].copy()
 
-            encoded_desc = self.tokenizer.batch_encode_plus(
-                [" ".join([self.vocab[x] for x in extracted_desc])],
-                add_special_tokens=True,
-                max_length=300,
-                # return_attention_mask=True,
-                # return_token_type_ids=True,
-                pad_to_max_length=self.code_length,
-                return_tensors="tf",
-            )
-            desc.append(encoded_desc["input_ids"])
+            desc.append(" ".join([self.vocab[x] for x in extracted_desc]))
 
             # " ".join([reversed_merged[x] for x in train_tokens[0]])
 
-        #code = self.pad(code, self.code_length)
-        #desc = self.pad(desc, self.desc_length)
-
         negative_description_vector = desc.copy()
+
+        desc = self.tokenize(desc)
+        code = self.tokenize(code)
+
         random.shuffle(negative_description_vector)
+
+        negative_description_vector = self.tokenize(negative_description_vector)
+
+        print(np.zeros((self.batch_size, self.code_length)))
+        print("###############################################")
+        print(np.array(code))
+        print(np.array(desc))
+        print(np.array(negative_description_vector))
 
         results = np.zeros((self.batch_size, 1))
 
-        #return [np.array(code), np.array(desc), np.array(negative_description_vector)], results
-        return [np.zeros((self.batch_size, self.code_length)), np.zeros((self.batch_size, self.code_length)), np.zeros((self.batch_size, self.code_length))], results
+        return [np.array(code), np.array(desc), np.array(negative_description_vector)], results
+        #return [np.zeros((self.batch_size, self.code_length)), np.zeros((self.batch_size, self.code_length)), np.zeros((self.batch_size, self.code_length))], results
 
     def test(self, idx):
         return self.__getitem__(idx)
 
     def len(self):
         return self.__len__()
+
+    def tokenize(self, text_list):
+        return self.tokenizer.batch_encode_plus(
+            text_list,
+            add_special_tokens=True,
+            max_length=self.code_length,
+            # return_attention_mask=True,
+            # return_token_type_ids=True,
+            pad_to_max_length=self.code_length,
+            return_tensors="tf",
+        )["input_ids"]
 
     def pad(self, data, len=None):
         from tensorflow.keras.preprocessing.sequence import pad_sequences
