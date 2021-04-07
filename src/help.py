@@ -1,6 +1,13 @@
 
-#import pickle5 as pickle
-import pickle
+import subprocess
+import sys
+
+try:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "pickle5"])
+    import pickle5 as pickle
+except:
+    import pickle
+
 import tables
 from tqdm import tqdm
 import numpy as np
