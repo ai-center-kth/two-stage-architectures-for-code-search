@@ -130,8 +130,8 @@ def train(trainig_model, training_set_generator, weights_path, batch_size=32):
 
 
 def test(data_path, cos_model, results_path, code_length, desc_length, batch_id, vocab, tokenizer):
-    test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 10) #10000
-    test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 10)
+    test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 10000)
+    test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 10000)
 
     for idx,token in enumerate(test_tokens):
         encoded_code = tokenizer.batch_encode_plus(
