@@ -3,11 +3,11 @@ import sys
 
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "pickle5"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "pickle5"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 
-import pickle5 as pickle
+#import pickle5 as pickle
 import pickle
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
@@ -129,12 +129,35 @@ def train(trainig_model, training_set_generator, weights_path, batch_size=32):
 
 
 
-def test(data_path, cos_model, results_path, code_length, desc_length, batch_id):
-    test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 10000)
-    test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 10000)
+def test(data_path, cos_model, results_path, code_length, desc_length, batch_id, vocab, tokenizer):
+    test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 10) #10000
+    test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 10)
 
-    test_tokens = pad(test_tokens, code_length)
-    test_desc = pad(test_desc, desc_length)
+    for idx,token in enumerate(test_tokens):
+        encoded_code = tokenizer.batch_encode_plus(
+            [" ".join([vocab[x] for x in token])],
+            add_special_tokens=True,
+            max_length=code_length,
+            # return_attention_mask=True,
+            # return_token_type_ids=True,
+            pad_to_max_length=code_length,
+            return_tensors="tf",
+        )["input_ids"]
+
+        test_tokens[idx] = encoded_code.numpy()[0]
+
+    for idx,desc in enumerate(test_desc):
+        encoded_desc = tokenizer.batch_encode_plus(
+            [" ".join([vocab[x] for x in desc])],
+            add_special_tokens=True,
+            max_length=code_length,
+            # return_attention_mask=True,
+            # return_token_type_ids=True,
+            pad_to_max_length=code_length,
+            return_tensors="tf",
+        )["input_ids"]
+
+        test_desc[idx] = encoded_desc.numpy()[0]
 
     results = {}
     pbar = tqdm(total=len(test_desc))
@@ -161,7 +184,7 @@ def test(data_path, cos_model, results_path, code_length, desc_length, batch_id)
     print(top_3)
     print(top_5)
 
-    name = results_path+"/results-snn-dcs-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
+    name = results_path+"/results-snnbert-dcs-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
 
     f = open(name, "a")
 
@@ -182,7 +205,7 @@ def training_data_chunk(id, valid_perc, chunk_size):
 if __name__ == "__main__":
     script_path = str(pathlib.Path(__file__).parent)
 
-    print("Running SNN Model")
+    print("Running SNN Bert Model")
 
     # dataset info
     total_length = 18223872
@@ -205,11 +228,11 @@ if __name__ == "__main__":
 
     #tf.debugging.set_log_device_placement(True)
 
-    strategy = tf.distribute.MirroredStrategy()
-    with strategy.scope():
+    #strategy = tf.distribute.MirroredStrategy()
+    #with strategy.scope():
 
-        print("Building model and loading weights")
-        training_model, embedding_model, cos_model = generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
+    print("Building model and loading weights")
+    training_model, embedding_model, cos_model = generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
         #load_weights(training_model, script_path+"/../weights")
 
     init_trainig, init_valid, end_valid = training_data_chunk(data_chunk_id, 1.0, chunk_size)
@@ -227,7 +250,7 @@ if __name__ == "__main__":
 
     #valid_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_valid, end_valid, longer_sentence, longer_sentence)
 
-    train(training_model, training_set_generator, script_path+"/../weights/snnbert_dcs_weights", batch_size)
+    #train(training_model, training_set_generator, script_path+"/../weights/snnbert_dcs_weights", batch_size)
 
-    #test(data_path, cos_model, script_path+"/../results", longer_sentence, longer_sentence, data_chunk_id)
+    test(data_path, cos_model, script_path+"/../results", longer_sentence, longer_sentence, data_chunk_id, vocab, tokenizer)
 
