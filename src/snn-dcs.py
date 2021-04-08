@@ -7,6 +7,10 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 
 
 # import pickle5 as pickle
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+
 import tensorflow as tf
 from tensorflow.keras import backend as K
 import pickle
@@ -122,7 +126,7 @@ def test(data_path, cos_model, results_path, code_length, desc_length, batch_id)
 
         tiled_desc = np.tile(desc, (deleted_tokens.shape[0], 1))
 
-        ress = cos_model.predict([deleted_tokens, tiled_desc])
+        ress = cos_model.predict([deleted_tokens, tiled_desc], batch_size=32*4)
 
         results[rowid] = len(ress[ress > expected_best_result])
 
