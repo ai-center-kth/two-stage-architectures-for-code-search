@@ -70,6 +70,15 @@ def generate_model(embedding_size, number_tokens, sentence_length, hinge_loss_ma
     cos_model = tf.keras.Model(inputs=[input_code, input_desc], outputs=[cos_good_sim],
                                     name='cos_model')
 
+
+    # Used in tests
+    embedded_code = tf.keras.Input(shape=(output_code.shape[1],), name="embedded_code")
+    embedded_desc = tf.keras.Input(shape=(output_code.shape[1],), name="embedded_desc")
+
+    dot = tf.keras.layers.Dot(axes=1, normalize=True)([embedded_code, embedded_desc])
+    dot_model = tf.keras.Model(inputs=[embedded_code, embedded_desc], outputs=[dot],
+                                    name='dot_model')
+
     cos_bad_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_bad_sim')([output_code, output_bad_desc])
 
     loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
@@ -82,7 +91,7 @@ def generate_model(embedding_size, number_tokens, sentence_length, hinge_loss_ma
     training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
     # y_true-y_true avoids warning
 
-    return training_model, embedding_model, cos_model
+    return training_model, embedding_model, cos_model, dot_model
 
 
 def load_weights(model, path):
@@ -109,7 +118,61 @@ def train(trainig_model, training_set_generator, valid_set_generator, weights_pa
 
 
 
-def test(data_path, cos_model, results_path, code_length, desc_length, batch_id):
+def test(data_path, embedding_model, cos_model, dot_model, results_path, code_length, desc_length, batch_id):
+    test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 10000)
+    test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 10000)
+
+    test_tokens = pad(test_tokens, code_length)
+    test_desc = pad(test_desc, desc_length)
+
+
+    for idx,token in enumerate(test_tokens):
+
+        embedding_result = embedding_model(np.array(token).reshape(1,-1))
+        test_tokens[idx] = embedding_result.numpy()[0]
+
+    for idx,desc in enumerate(test_desc):
+
+        embedding_result = embedding_model(np.array(desc).reshape(1,-1))
+        test_desc[idx] = embedding_result.numpy()[0]
+
+    results = {}
+    pbar = tqdm(total=len(test_desc))
+
+    for rowid, desc in enumerate(test_desc):
+
+        expected_best_result = dot_model.predict([test_tokens[rowid].reshape((1, -1)), test_desc[rowid].reshape((1, -1))])[0][0]
+
+        deleted_tokens = np.delete(test_tokens, rowid, 0)
+
+        tiled_desc = np.tile(desc, (deleted_tokens.shape[0], 1))
+
+        prediction = dot_model.predict([deleted_tokens, tiled_desc], batch_size=32*4)
+
+        results[rowid] = len(prediction[prediction > expected_best_result])
+
+        pbar.update(1)
+    pbar.close()
+
+    top_1 = get_top_n(1, results)
+    top_3 = get_top_n(3, results)
+    top_5 = get_top_n(5, results)
+
+    print(top_1)
+    print(top_3)
+    print(top_5)
+
+    name = results_path + "/results-snn-dcs-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
+
+    f = open(name, "a")
+
+    f.write("batch,top1,top3,top5\n")
+    f.write(str(batch_id) + "," + str(top_1) + "," + str(top_3) + "," + str(top_5) + "\n")
+    f.close()
+    
+
+def test_legacy(data_path, cos_model, results_path, code_length, desc_length, batch_id):
+
     test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 10000)
     test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 10000)
 
@@ -189,7 +252,7 @@ if __name__ == "__main__":
     with strategy.scope():
 
         print("Building model and loading weights")
-        training_model, embedding_model, cos_model = generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
+        training_model, embedding_model, cos_model, dot_model = generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
         load_weights(training_model, script_path+"/../weights")
 
     init_trainig, init_valid, end_valid = training_data_chunk(data_chunk_id, 0.8, chunk_size)
@@ -203,5 +266,5 @@ if __name__ == "__main__":
 
     #train(training_model, training_set_generator, valid_set_generator, script_path+"/../weights/snn_dcs_weights", batch_size)
 
-    test(data_path, cos_model, script_path+"/../results", longer_sentence, longer_sentence, data_chunk_id)
+    test(data_path, embedding_model, cos_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence, data_chunk_id)
 
