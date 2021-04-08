@@ -125,12 +125,13 @@ def test(data_path, embedding_model, cos_model, dot_model, results_path, code_le
     test_tokens = pad(test_tokens, code_length)
     test_desc = pad(test_desc, desc_length)
 
-
+    print("Embedding tokens...")
     for idx,token in enumerate(test_tokens):
 
         embedding_result = embedding_model(np.array(token).reshape(1,-1))
         test_tokens[idx] = embedding_result.numpy()[0]
 
+    print("Embedding descs...")
     for idx,desc in enumerate(test_desc):
 
         embedding_result = embedding_model(np.array(desc).reshape(1,-1))
@@ -169,7 +170,7 @@ def test(data_path, embedding_model, cos_model, dot_model, results_path, code_le
     f.write("batch,top1,top3,top5\n")
     f.write(str(batch_id) + "," + str(top_1) + "," + str(top_3) + "," + str(top_5) + "\n")
     f.close()
-    
+
 
 def test_legacy(data_path, cos_model, results_path, code_length, desc_length, batch_id):
 
