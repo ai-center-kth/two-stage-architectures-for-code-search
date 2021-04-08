@@ -7,7 +7,7 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", "pickle5"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
 # import pickle5 as pickle
 import tensorflow as tf
@@ -137,7 +137,7 @@ def test(data_path, cos_model, results_path, code_length, desc_length, batch_id)
 
         tiled_desc = np.tile(desc, (deleted_tokens.shape[0], 1))
 
-        ress = cos_model.predict([deleted_tokens, tiled_desc])
+        ress = cos_model.predict([deleted_tokens, tiled_desc], batch_size=32*4)
 
         results[rowid] = len(ress[ress > expected_best_result])
 
@@ -203,7 +203,7 @@ if __name__ == "__main__":
 
         load_weights(training_model, script_path+"/../weights")
 
-    init_trainig, init_valid, end_valid = training_data_chunk(data_chunk_id, 0.9, chunk_size)
+    #init_trainig, init_valid, end_valid = training_data_chunk(data_chunk_id, 0.9, chunk_size)
 
     print("Training model with chunk number ", data_chunk_id, " of ", number_chunks)
 
