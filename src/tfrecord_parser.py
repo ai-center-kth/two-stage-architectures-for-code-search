@@ -21,7 +21,7 @@ class TFRecordParser():
         pass
 
     @staticmethod
-    def to_tfrecord_features(tokenized_doc, tokenized_code, tokenized_negative, similarity):
+    def to_tfrecord_features(tokenized_code, tokenized_doc, tokenized_negative, similarity):
 
         # int_list1 = tf.train.Int64List(value = [data_record['int_data']])
         _tokenized_doc = tf.train.Int64List(value=tokenized_doc.flatten())
@@ -31,8 +31,8 @@ class TFRecordParser():
         _similarity = tf.train.FloatList(value=[similarity])
 
         feature_key_value_pair = {
-            'tokenized_doc': tf.train.Feature(int64_list=_tokenized_doc),
             'tokenized_code': tf.train.Feature(int64_list=_tokenized_code),
+            'tokenized_doc': tf.train.Feature(int64_list=_tokenized_doc),
             'tokenized_negative': tf.train.Feature(int64_list=_tokenized_negative),
             'similarity': tf.train.Feature(float_list=_similarity)
         }
@@ -79,7 +79,7 @@ class TFRecordParser():
         encoded = TFRecordParser.tokenizer.batch_encode_plus(
             [string],
             add_special_tokens=True,
-            max_length=45,
+            max_length=90,
             return_attention_mask=False,
             return_token_type_ids=False,
             padding='max_length',
@@ -100,11 +100,9 @@ class TFRecordParser():
     @staticmethod
     def extract_fn(data_record):
         features = {
-
-            'tokenized_doc': tf.io.FixedLenFeature((45), tf.int64),
-            # tf.io.FixedLenFeature([], tf.int64), #tf.io.VarLenFeature(tf.int64),
-            'tokenized_code': tf.io.FixedLenFeature((45), tf.int64),
-            'tokenized_negative': tf.io.FixedLenFeature((45), tf.int64),
+            'tokenized_code': tf.io.FixedLenFeature((90), tf.int64),
+            'tokenized_doc': tf.io.FixedLenFeature((90), tf.int64),
+            'tokenized_negative': tf.io.FixedLenFeature((90), tf.int64),
             'similarity': tf.io.FixedLenFeature([], tf.float32)
 
         }

@@ -174,9 +174,9 @@ if __name__ == "__main__":
     number_code_tokens = 30522
     number_desc_tokens = 30522
 
-    longer_code = 45
-    longer_desc = 45
-    embedding_size = 2048 # 16384 #
+    longer_code = 90
+    longer_desc = 90
+    embedding_size = 16384 
 
     print("Building model and loading weights")
     strategy = tf.distribute.MirroredStrategy()
