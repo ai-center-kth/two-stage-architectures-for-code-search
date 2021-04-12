@@ -6,72 +6,58 @@ import os.path
 import time
 import pathlib
 from tfrecord_parser import TFRecordParser
+import os
 from pathlib import Path
 from tqdm import tqdm
 import tensorflow as tf
 from tensorflow.keras import backend as K
 import numpy as np
 
+def generate_model(embedding_size, number_tokens, sentence_length, hinge_loss_margin):
+        input_layer = tf.keras.Input(shape=(sentence_length,), name="input")
+        embedding_layer = tf.keras.layers.Embedding(number_tokens, embedding_size, name="embeding")(input_layer)
 
-def generate_model(embedding_size, number_code_tokens, number_desc_tokens, code_length, desc_length, hinge_loss_margin):
+        attention_layer = tf.keras.layers.Attention(name="attention")([embedding_layer, embedding_layer])
 
-    code_input = tf.keras.Input(shape=(code_length,), name="code_input")
-    code_embeding = tf.keras.layers.Embedding(number_code_tokens, embedding_size, name="code_embeding")(code_input)
+        sum_layer = tf.keras.layers.Lambda(lambda x: K.sum(x, axis=1), name="sum")(attention_layer)
+        # average_layer = tf.keras.layers.Lambda(lambda x: K.mean(x, axis=1), name="average")( attention_layer)
 
-    attention_code = tf.keras.layers.Attention(name="attention_code")([code_embeding, code_embeding])
+        embedding_model = tf.keras.Model(inputs=[input_layer], outputs=[sum_layer], name='siamese_model')
 
-    query_input = tf.keras.Input(shape=(desc_length,), name="query_input")
-    query_embeding = tf.keras.layers.Embedding(number_desc_tokens, embedding_size, name="query_embeding")(query_input)
+        input_code = tf.keras.Input(shape=(sentence_length,), name="code")
+        input_desc = tf.keras.Input(shape=(sentence_length,), name="desc")
+        input_bad_desc = tf.keras.Input(shape=(sentence_length,), name="bad_desc")
 
-    code_output = tf.keras.layers.Lambda(lambda x: K.sum(x, axis=1), name="sum")(attention_code)
-    query_output = tf.keras.layers.Lambda(lambda x: K.mean(x, axis=1), name="average")(query_embeding)
+        output_code = embedding_model(input_code)
+        output_desc = embedding_model(input_desc)
+        output_bad_desc = embedding_model(input_bad_desc)
 
-    # This model generates code embedding
-    model_code = tf.keras.Model(inputs=[code_input], outputs=[code_output], name='model_code')
-    # This model generates description/query embedding
-    model_query = tf.keras.Model(inputs=[query_input], outputs=[query_output], name='model_query')
+        cos_good_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_good_sim')([output_code, output_desc])
 
+        cos_model = tf.keras.Model(inputs=[input_code, input_desc], outputs=[cos_good_sim],
+                                   name='cos_model')
 
-    embedded_code = tf.keras.Input(shape=(code_output.shape[1],), name="embedded_code")
-    embedded_desc = tf.keras.Input(shape=(query_output.shape[1],), name="embedded_desc")
+        # Used in tests
+        embedded_code = tf.keras.Input(shape=(output_code.shape[1],), name="embedded_code")
+        embedded_desc = tf.keras.Input(shape=(output_code.shape[1],), name="embedded_desc")
 
-    dot = tf.keras.layers.Dot(axes=1, normalize=True)([embedded_code, embedded_desc])
-    dot_model = tf.keras.Model(inputs=[embedded_code, embedded_desc], outputs=[dot],
-                                    name='dot_model')
+        dot = tf.keras.layers.Dot(axes=1, normalize=True)([embedded_code, embedded_desc])
+        dot_model = tf.keras.Model(inputs=[embedded_code, embedded_desc], outputs=[dot],
+                                   name='dot_model')
 
-    # Cosine similarity
-    # If normalize set to True, then the output of the dot product is the cosine proximity between the two samples.
-    cos_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_sim')([code_output, query_output])
+        cos_bad_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_bad_sim')([output_code, output_bad_desc])
 
-    # This model calculates cosine similarity between code and query pairs
-    cos_model = tf.keras.Model(inputs=[code_input, query_input], outputs=[cos_sim], name='sim_model')
+        loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
+                                      output_shape=lambda x: x[0],
+                                      name='loss')([cos_good_sim, cos_bad_sim])
 
-    loss = tf.keras.layers.Flatten()(cos_sim)
-    # training_model = tf.keras.Model(inputs=[ code_input, query_input], outputs=[cos_sim],name='training_model')
+        training_model = tf.keras.Model(inputs=[input_code, input_desc, input_bad_desc], outputs=[loss],
+                                        name='training_model')
 
-    model_code.compile(loss='cosine_proximity', optimizer='adam')
-    model_query.compile(loss='cosine_proximity', optimizer='adam')
+        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
+        # y_true-y_true avoids warning
 
-    cos_model.compile(loss='binary_crossentropy', optimizer='adam', metrics=["accuracy"])  # extract similarity
-
-    # Negative sampling
-    good_desc_input = tf.keras.Input(shape=(desc_length,), name="good_desc_input")
-    bad_desc_input = tf.keras.Input(shape=(desc_length,), name="bad_desc_input")
-
-    good_desc_output = cos_model([code_input, good_desc_input])
-    bad_desc_output = cos_model([code_input, bad_desc_input])
-
-    margin = 0.5
-    loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]), output_shape=lambda x: x[0],
-                                  name='loss')([good_desc_output, bad_desc_output])
-
-    training_model = tf.keras.Model(inputs=[code_input, good_desc_input, bad_desc_input], outputs=[loss],
-                                    name='training_model')
-
-    training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
-    # y_true-y_true avoids warning
-
-    return training_model, model_code, model_query, cos_model, dot_model
+        return training_model, embedding_model, embedding_model, cos_model, dot_model
 
 def load_weights(model, path):
     if os.path.isfile(path+'/unif_csc_weights.index'):
@@ -89,6 +75,7 @@ def train(trainig_model, training_set_generator, weights_path, steps_per_epoch )
 
 def test(dataset, code_model, desc_model, dot_model, results_path):
     print("Testing model...")
+
     # Hardcoded
     dataset_size = 10000 # 22176
 
@@ -112,6 +99,7 @@ def test(dataset, code_model, desc_model, dot_model, results_path):
     print("Testing...")
     results = {}
     pbar = tqdm(total=len(desc_embeddings))
+
     for rowid, desc in enumerate(desc_embeddings):
 
         expected_best_result = dot_model.predict([code_embeddings[rowid].reshape((1, -1)), desc_embeddings[rowid].reshape((1, -1))])[0][0]
@@ -152,7 +140,7 @@ def get_top_n(n, results):
 
 if __name__ == "__main__":
 
-    print("UNIF with SearchCodeChallenge dataset")
+    print("UNIF with CodeSearchNet Challenge dataset")
 
     script_path = str(pathlib.Path(__file__).parent)+"/"
 
@@ -181,21 +169,18 @@ if __name__ == "__main__":
         with strategy.scope():
             training_model, model_code, model_query, cos_model, dot_model = generate_model(embedding_size,
                                                                                            number_code_tokens,
-                                                                                           number_desc_tokens,
-                                                                                           longer_code,
-                                                                                           longer_desc, 0.05)
+                                                                                           longer_code,0.05)
             load_weights(training_model, script_path+"/../weights")
     else:
         training_model, model_code, model_query, cos_model, dot_model = generate_model(embedding_size,
                                                                                        number_code_tokens,
-                                                                                       number_desc_tokens, longer_code,
-                                                                                       longer_desc, 0.05)
+                                                                                       longer_code, 0.05)
         load_weights(training_model, script_path + "/../weights")
 
     num_elements = 420000
     steps_per_epoch = num_elements // BATCH_SIZE
 
-    train(training_model, dataset, script_path + "/../weights/unif_csc_weights", steps_per_epoch)
+    #train(training_model, dataset, script_path + "/../weights/snn_csc_weights", steps_per_epoch)
 
     test_files = sorted(Path(target_path + 'python/test/').glob('**/*.tfrecordtest'))
     test_files = [x.__str__() for x in test_files]
