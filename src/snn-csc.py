@@ -76,7 +76,7 @@ def load_weights(model, path):
 
 def train(trainig_model, training_set_generator, weights_path, steps_per_epoch ):
     print("Training model...")
-    trainig_model.fit(training_set_generator, epochs=5, steps_per_epoch=steps_per_epoch)
+    trainig_model.fit(training_set_generator, epochs=20, steps_per_epoch=steps_per_epoch)
     trainig_model.save_weights(weights_path)
     print("Model saved!")
 
@@ -205,6 +205,6 @@ if __name__ == "__main__":
 
     test_files = sorted(Path(target_path + 'python/test/').glob('**/*.tfrecordtest'))
     test_files = [x.__str__() for x in test_files]
-    test_dataset = TFRecordParser.generate_dataset(tfr_files, 1)
+    test_dataset = TFRecordParser.generate_dataset(test_files, 1)
 
-    test(dataset, model_code, model_query, dot_model, script_path+"/../results")
+    test(test_dataset, model_code, model_query, dot_model, script_path+"/../results")
