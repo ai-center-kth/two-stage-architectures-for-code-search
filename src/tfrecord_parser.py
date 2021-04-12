@@ -53,7 +53,7 @@ class TFRecordParser():
         random.shuffle(data_shuffled)
 
         with tf.io.TFRecordWriter(
-                target_path + language + "/" + dataset + "/" + str(chunk) + ".tfrecordtest") as tfwriter:
+                target_path + language + "/" + dataset + "/" + str(chunk) + ".tfrecord") as tfwriter:
             for d in data:
                 line_a = json.loads(str(d, encoding='utf-8'))
 
@@ -109,8 +109,7 @@ class TFRecordParser():
 
         }
         sample = tf.io.parse_single_example(data_record, features)
-        print(type(sample["tokenized_doc"]))
-        return (sample["tokenized_doc"], sample["tokenized_code"], sample["tokenized_negative"]), sample[
+        return (sample["tokenized_code"], sample["tokenized_doc"], sample["tokenized_negative"]), sample[
             "similarity"]  # sample["tokenized_doc"], sample["tokenized_negative"]
 
     @staticmethod
