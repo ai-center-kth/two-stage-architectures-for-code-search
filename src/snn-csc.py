@@ -65,7 +65,7 @@ def generate_model(embedding_size, number_tokens, sentence_length, hinge_loss_ma
     training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
     # y_true-y_true avoids warning
 
-    return training_model, embedding_model, cos_model, dot_model
+    return training_model, embedding_model, embedding_model, cos_model, dot_model
 
 def load_weights(model, path):
     if os.path.isfile(path+'/snn_csc_weights.index'):
@@ -76,7 +76,7 @@ def load_weights(model, path):
 
 def train(trainig_model, training_set_generator, weights_path, steps_per_epoch ):
     print("Training model...")
-    trainig_model.fit(training_set_generator, epochs=1, steps_per_epoch=steps_per_epoch)
+    trainig_model.fit(training_set_generator, epochs=5, steps_per_epoch=steps_per_epoch)
     trainig_model.save_weights(weights_path)
     print("Model saved!")
 
@@ -149,6 +149,13 @@ def get_top_n(n, results):
             count += 1
     return count / len(results)
 
+def calc_num_elements(dataset):
+    num_elements = 0
+    for element in dataset:
+        num_elements += 1
+    return num_elements
+
+
 if __name__ == "__main__":
 
     print("SNN with SearchCodeChallenge dataset")
@@ -190,7 +197,8 @@ if __name__ == "__main__":
         load_weights(training_model, script_path + "/../weights")
 
 
-    num_elements = 420000
+    num_elements = calc_num_elements(dataset)
+
     steps_per_epoch = num_elements // BATCH_SIZE
 
     train(training_model, dataset, script_path + "/../weights/snn_csc_weights", steps_per_epoch)
