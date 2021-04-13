@@ -4,14 +4,15 @@ import numpy as np
 import random
 
 class DataGeneratorDCSBERT(keras.utils.Sequence):
-    def __init__(self, tokens_path, desc_path, batch_size, init_pos, last_pos, code_length, desc_length, tokenizer, vocab):
+    def __init__(self, tokens_path, desc_path, batch_size, init_pos, last_pos, code_length, desc_length, tokenizer, vocab_code, vocab_desc):
         self.tokens_path = tokens_path
         self.desc_path = desc_path
         self.batch_size = batch_size
         self.code_length = code_length
         self.desc_length = desc_length
         self.tokenizer = tokenizer
-        self.vocab = vocab
+        self.vocab_code = vocab_code
+        self.vocab_desc = vocab_desc
 
         # code
         code_table = tables.open_file(tokens_path)
@@ -51,24 +52,13 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
             len, pos = self.code_index[offset]['length'], self.code_index[offset]['pos']
             extracted_code = self.code_data[pos:pos + len].copy()
 
-            encoded_code = self.tokenizer.batch_encode_plus(
-                [" ".join([self.vocab[x] for x in extracted_code])],
-                add_special_tokens=True,
-                max_length=self.code_length,
-                # return_attention_mask=True,
-                # return_token_type_ids=True,
-                pad_to_max_length=self.code_length,
-                return_tensors="tf",
-            )
-
-            code.append(" ".join([self.vocab[x] for x in extracted_code]))
+            code.append("[CLS] "+ (" ".join([self.vocab_code[x] for x in extracted_code])) + " [SEP]")
 
             # Desc
             len, pos = self.desc_index[offset]['length'], self.desc_index[offset]['pos']
             extracted_desc = self.desc_data[pos:pos + len].copy()
 
-            desc.append(" ".join([self.vocab[x] for x in extracted_desc]))
-
+            desc.append("[CLS] " + (" ".join([self.vocab_desc[x] for x in extracted_desc])) + " [SEP]")
             # " ".join([reversed_merged[x] for x in train_tokens[0]])
 
         negative_description_vector = desc.copy()
