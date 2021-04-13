@@ -52,13 +52,13 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
             len, pos = self.code_index[offset]['length'], self.code_index[offset]['pos']
             extracted_code = self.code_data[pos:pos + len].copy()
 
-            code.append("[CLS] "+ (" ".join([self.vocab_code[x] for x in extracted_code])) + " [SEP]")
+            code.append( (" ".join([self.vocab_code[x] for x in extracted_code])) )
 
             # Desc
             len, pos = self.desc_index[offset]['length'], self.desc_index[offset]['pos']
             extracted_desc = self.desc_data[pos:pos + len].copy()
 
-            desc.append("[CLS] " + (" ".join([self.vocab_desc[x] for x in extracted_desc])) + " [SEP]")
+            desc.append( (" ".join([self.vocab_desc[x] for x in extracted_desc])) )
             # " ".join([reversed_merged[x] for x in train_tokens[0]])
 
         negative_description_vector = desc.copy()
