@@ -3,6 +3,7 @@ import sys
 
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
+subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
