@@ -7,7 +7,7 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
@@ -86,7 +86,7 @@ def generate_model(embedding_size, number_tokens, sentence_length, hinge_loss_ma
     cos_model = tf.keras.Model(inputs=[ids_code, ids_desc], outputs=[cos_good_sim],
                                     name='cos_model')
 
-    # Using in tests
+    # Used in tests
     embedded_code = tf.keras.Input(shape=(embedding_size,), name="embedded_code")
     embedded_desc = tf.keras.Input(shape=(embedding_size,), name="embedded_desc")
 
@@ -133,14 +133,14 @@ def train(trainig_model, training_set_generator, weights_path, batch_size=32):
 
 
 
-def test(data_path, embedding_model, cos_model, results_path, code_length, desc_length, batch_id, vocab, tokenizer):
-    test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 10000)
-    test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 10000)
+def test(data_path, embedding_model, cos_model, results_path, code_length, desc_length, batch_id, vocab_code, vocab_desc, tokenizer):
+    test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, -1)
+    test_desc = load_hdf5(data_path + "test.desc.h5" , 0, -1)
 
     print("Embedding tokens...")
     for idx,token in enumerate(test_tokens):
         encoded_code = tokenizer.batch_encode_plus(
-            [" ".join([vocab[x] for x in token])],
+            ["[CLS] "+(" ".join([vocab_code[x] for x in token]))+" [SEP]"],
             add_special_tokens=True,
             max_length=code_length,
             # return_attention_mask=True,
@@ -156,7 +156,7 @@ def test(data_path, embedding_model, cos_model, results_path, code_length, desc_
     print("Embedding descriptions...")
     for idx,desc in enumerate(test_desc):
         encoded_desc = tokenizer.batch_encode_plus(
-            [" ".join([vocab[x] for x in desc])],
+            ["[CLS] "+(" ".join([vocab_desc[x] for x in desc]))+" [SEP]"],
             add_special_tokens=True,
             max_length=code_length,
             # return_attention_mask=True,
@@ -218,8 +218,8 @@ if __name__ == "__main__":
     print("Running SNN Bert Model")
 
     # dataset info
-    total_length = 18223872
-    chunk_size = 9111936 #1000000
+    total_length = 10000 #18223872
+    chunk_size = 10000
 
     number_chunks = total_length/chunk_size - 1
     number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
@@ -231,7 +231,7 @@ if __name__ == "__main__":
 
     data_chunk_id = min(data_chunk_id, int(number_chunks))
 
-    data_path = script_path+"/../data/deep-code-search/processed/"
+    data_path = script_path+"/../data/deep-code-search/dummy/"
 
     longer_sentence, number_tokens = get_dataset_meta_hardcoded()
     embedding_size = None
@@ -239,10 +239,10 @@ if __name__ == "__main__":
     #tf.debugging.set_log_device_placement(True)
 
     strategy = tf.distribute.MirroredStrategy()
-    with strategy.scope():
+    #with strategy.scope():
 
-        print("Building model and loading weights")
-        training_model, embedding_model, cos_model, dot_model = generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
+    #print("Building model and loading weights")
+    training_model, embedding_model, cos_model, dot_model = generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
         #load_weights(training_model, script_path+"/../weights")
 
     init_trainig, init_valid, end_valid = training_data_chunk(data_chunk_id, 1.0, chunk_size)
@@ -251,16 +251,19 @@ if __name__ == "__main__":
 
     batch_size = 32 * 2
 
-    merged = load_pickle(data_path+"vocab.merged.pkl")
-    vocab = {y: x for x, y in merged.items()}
+    vocab_code_pckl = load_pickle(data_path+"vocab.tokens.pkl")
+    vocab_code = {y: x for x, y in vocab_code_pckl.items()}
+
+    vocab_desc_pckl = load_pickle(data_path+"vocab.desc.pkl")
+    vocab_desc = {y: x for x, y in vocab_desc_pckl.items()}
 
     tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-uncased") #RobertaTokenizer.from_pretrained("microsoft/codebert-base")
 
-    training_set_generator = DataGeneratorDCSBERT(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_sentence, longer_sentence, tokenizer, vocab)
+    training_set_generator = DataGeneratorDCSBERT(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_sentence, longer_sentence, tokenizer, vocab_code, vocab_desc)
 
     #valid_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_valid, end_valid, longer_sentence, longer_sentence)
 
-    #train(training_model, training_set_generator, script_path+"/../weights/snnbert_dcs_weights", batch_size)
+    train(training_model, training_set_generator, script_path+"/../weights/snnbert_dcs_weights", batch_size)
 
-    test(data_path, embedding_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence, data_chunk_id, vocab, tokenizer)
+    test(data_path, embedding_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence, data_chunk_id, vocab_code, vocab_desc, tokenizer)
 
