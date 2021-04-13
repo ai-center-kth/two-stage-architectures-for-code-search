@@ -3,267 +3,267 @@ import sys
 
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
-
 
 import os
-#os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
-import sys
-import os.path
-import time
 import pathlib
-from dcs_bert_data_generator import DataGeneratorDCSBERT
+from dcs_data_generator import DataGeneratorDCS
 from help import *
-from transformers import BertTokenizer, TFBertModel, BertConfig
-import transformers
+from code_search_manager import CodeSearchManager
+from transformers import TFBertModel, BertTokenizer
+from dcs_bert_data_generator import DataGeneratorDCSBERT
 
-def get_dataset_meta():
-    # 18223872 (len) #1000000
-    code_vector = load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
-    desc_vector = load_hdf5(data_path + "train.desc.h5", 0, 18223872)
-    vocabulary_merged = load_pickle(data_path + "vocab.merged.pkl")
+class SNNBERT_DCS(CodeSearchManager):
 
-    longer_code = max(len(t) for t in code_vector)
-    print("longer_code", longer_code)
-    longer_desc = max(len(t) for t in desc_vector)
-    print("longer_desc", longer_desc)
+    def __init__(self, data_path, data_chunk_id=0):
+        self.data_path = data_path
 
-    longer_sentence = max(longer_code, longer_desc)
-
-    number_tokens = len(vocabulary_merged)
-
-    return longer_sentence, number_tokens
+        # dataset info
+        self.total_length = 10000
+        self.chunk_size = 10000 // 20  # 18223872  # 10000
 
 
-def get_dataset_meta_hardcoded():
-    longer_sentence = 64
-    number_tokens = None
-    return longer_sentence, number_tokens
+        number_chunks = self.total_length / self.chunk_size - 1
+        self.number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
+
+        self.data_chunk_id = min(data_chunk_id, int(self.number_chunks))
+        print("### Loading SNN model with DCS chunk number " + str(data_chunk_id) + " [0," + str(number_chunks)+"]")
 
 
-def generate_model(embedding_size, number_tokens, sentence_length, hinge_loss_margin):
+        vocab_code_pckl = load_pickle(data_path + "vocab.tokens.pkl")
+        self.vocab_code = {y: x for x, y in vocab_code_pckl.items()}
 
-    encoder = TFBertModel.from_pretrained("bert-base-uncased")
-    encoder.trainable = False
+        vocab_desc_pckl = load_pickle(data_path + "vocab.desc.pkl")
+        self.vocab_desc = {y: x for x, y in vocab_desc_pckl.items()}
 
-    input_ids = tf.keras.Input(shape=(sentence_length,), dtype=tf.int32)
-    #token_type_ids = tf.keras.Input(shape=(sentence_length,), dtype=tf.int32)
-    #attention_mask = tf.keras.Input(shape=(sentence_length,), dtype=tf.int32)
+    def get_dataset_meta_hardcoded(self):
+        return 410, 13645
 
-    embedding_layer = encoder(
-        input_ids)[0]
+    def get_dataset_meta(self):
+        # 18223872 (len) #1000000
+        code_vector = load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
+        desc_vector = load_hdf5(data_path + "train.desc.h5", 0, 18223872)
+        vocabulary_merged = load_pickle(data_path + "vocab.merged.pkl")
 
-    attention_layer = tf.keras.layers.Attention(name="attention")([embedding_layer, embedding_layer])
+        longer_code = max(len(t) for t in code_vector)
+        print("longer_code", longer_code)
+        longer_desc = max(len(t) for t in desc_vector)
+        print("longer_desc", longer_desc)
 
-    sum_layer = tf.keras.layers.Lambda(lambda x: K.sum(x, axis=1), name="sum")(embedding_layer)
-    # average_layer = tf.keras.layers.Lambda(lambda x: K.mean(x, axis=1), name="average")( attention_layer)
+        longer_sentence = max(longer_code, longer_desc)
 
-    embedding_model = tf.keras.Model(inputs=[input_ids], outputs=[sum_layer], name='siamese_model')
+        number_tokens = len(vocabulary_merged)
 
-    ids_code = tf.keras.Input(shape=(sentence_length,), name="ids_code")
-    #type_code = tf.keras.Input(shape=(sentence_length,), name="type_code")
-    #mask_code = tf.keras.Input(shape=(sentence_length,), name="mask_code")
-
-    ids_desc = tf.keras.Input(shape=(sentence_length,), name="ids_desc")
-    #type_desc = tf.keras.Input(shape=(sentence_length,), name="type_desc")
-    #mask_desc = tf.keras.Input(shape=(sentence_length,), name="mask_desc")
-
-    ids_bad = tf.keras.Input(shape=(sentence_length,), name="ids_bad")
-    #type_bad = tf.keras.Input(shape=(sentence_length,), name="type_bad")
-    #mask_bad = tf.keras.Input(shape=(sentence_length,), name="mask_bad")
-
-    output_code = embedding_model([ids_code])
-    output_desc = embedding_model([ids_desc])
-    output_bad_desc = embedding_model([ids_bad])
-
-    embedding_size = output_code.shape[1]
-
-    cos_good_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_good_sim')([output_code, output_desc])
-
-    cos_model = tf.keras.Model(inputs=[ids_code, ids_desc], outputs=[cos_good_sim],
-                                    name='cos_model')
-
-    # Used in tests
-    embedded_code = tf.keras.Input(shape=(embedding_size,), name="embedded_code")
-    embedded_desc = tf.keras.Input(shape=(embedding_size,), name="embedded_desc")
-
-    dot = tf.keras.layers.Dot(axes=1, normalize=True)([embedded_code, embedded_desc])
-    dot_model = tf.keras.Model(inputs=[embedded_code, embedded_desc], outputs=[dot],
-                                    name='dot_model')
-
-    cos_bad_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_bad_sim')([output_code, output_bad_desc])
-
-    loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
-                                  output_shape=lambda x: x[0],
-                                  name='loss')([cos_good_sim, cos_bad_sim])
-
-    training_model = tf.keras.Model(inputs=[ids_code, ids_desc, ids_bad], outputs=[loss],
-                                    name='training_model')
-
-    training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
-    # y_true-y_true avoids warning
-
-    return training_model, embedding_model, cos_model, dot_model
+        return longer_sentence, number_tokens
 
 
-def load_weights(model, path):
-    if os.path.isfile(path+'/snnbert_dcs_weights.index'):
-        model.load_weights(path+'/snnbert_dcs_weights')
-        print("Weights loaded!")
-    else:
-        print("Warning! No weights loaded!")
+    def generate_model(self, embedding_size, number_tokens, sentence_length, hinge_loss_margin):
 
-# n >= 1
-def get_top_n(n, results):
-    count = 0
-    for r in results:
-        if results[r] < n:
-            count+= 1
-    return count / len(results)
+        input_ids = tf.keras.Input(shape=(sentence_length,), name="id", dtype=tf.int32)
+        attention_mask = tf.keras.Input(shape=(sentence_length,), name="attention", dtype=tf.int32)
+        token_type_ids = tf.keras.Input(shape=(sentence_length,), name="type", dtype=tf.int32)
 
+        encoder = TFBertModel.from_pretrained("bert-base-uncased")
+        encoder.trainable = True
 
-def train(trainig_model, training_set_generator, weights_path, batch_size=32):
-    trainig_model.fit(training_set_generator, epochs=1, batch_size=batch_size)
-    trainig_model.save_weights(weights_path)
-    print("Model saved!")
+        sequence_output = encoder(
+            input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask
+        )[0]
 
+        sum_layer = tf.reduce_mean(sequence_output, 1)
 
+        #embedding_layer = tf.keras.layers.Embedding(number_tokens, embedding_size, name="embeding")(input_layer)
 
+        #attention_layer = tf.keras.layers.Attention(name="attention")([embedding_layer, embedding_layer])
 
-def test(data_path, embedding_model, cos_model, results_path, code_length, desc_length, batch_id, vocab_code, vocab_desc, tokenizer):
-    test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, -1)
-    test_desc = load_hdf5(data_path + "test.desc.h5" , 0, -1)
+        #sum_layer = tf.keras.layers.Lambda(lambda x: K.sum(x, axis=1), name="sum")(sequence_output)
+        # average_layer = tf.keras.layers.Lambda(lambda x: K.mean(x, axis=1), name="average")( attention_layer)
 
-    print("Embedding tokens...")
-    for idx,token in enumerate(test_tokens):
-        encoded_code = tokenizer.batch_encode_plus(
-            ["[CLS] "+(" ".join([vocab_code[x] for x in token]))+" [SEP]"],
-            add_special_tokens=True,
-            max_length=code_length,
-            # return_attention_mask=True,
-            # return_token_type_ids=True,
-            pad_to_max_length=code_length,
-            return_tensors="tf",
-        )["input_ids"].numpy()[0]
+        embedding_model = tf.keras.Model(inputs=[input_ids, attention_mask, token_type_ids], outputs=[sum_layer], name='siamese_model')
 
-        embedding_result = embedding_model(encoded_code.reshape(1,-1))
+        input_code_ids = tf.keras.Input(shape=(sentence_length,), name="input_code_ids")
+        input_code_mask = tf.keras.Input(shape=(sentence_length,), name="input_code_mask")
+        input_code_type = tf.keras.Input(shape=(sentence_length,), name="input_code_type")
 
-        test_tokens[idx] = embedding_result.numpy()[0]
+        input_desc_ids = tf.keras.Input(shape=(sentence_length,), name="input_desc_ids")
+        input_desc_mask = tf.keras.Input(shape=(sentence_length,), name="input_desc_mask")
+        input_desc_type = tf.keras.Input(shape=(sentence_length,), name="input_desc_type")
 
-    print("Embedding descriptions...")
-    for idx,desc in enumerate(test_desc):
-        encoded_desc = tokenizer.batch_encode_plus(
-            ["[CLS] "+(" ".join([vocab_desc[x] for x in desc]))+" [SEP]"],
-            add_special_tokens=True,
-            max_length=code_length,
-            # return_attention_mask=True,
-            # return_token_type_ids=True,
-            pad_to_max_length=code_length,
-            return_tensors="tf",
-        )["input_ids"].numpy()[0]
-
-        embedding_result = embedding_model(encoded_desc.reshape(1, -1))
-        test_desc[idx] = embedding_result.numpy()[0]
-
-    results = {}
-    pbar = tqdm(total=len(test_desc))
-
-    for rowid, desc in enumerate(test_desc):
-
-        expected_best_result = dot_model.predict([test_tokens[rowid].reshape((1, -1)), test_desc[rowid].reshape((1, -1))])[0][0]
-
-        deleted_tokens = np.delete(test_tokens, rowid, 0)
-
-        tiled_desc = np.tile(desc, (deleted_tokens.shape[0], 1))
-
-        prediction = dot_model.predict([deleted_tokens, tiled_desc], batch_size=32*4)
-
-        results[rowid] = len(prediction[prediction > expected_best_result])
-
-        pbar.update(1)
-    pbar.close()
-
-    top_1 = get_top_n(1, results)
-    top_3 = get_top_n(3, results)
-    top_5 = get_top_n(5, results)
-
-    print(top_1)
-    print(top_3)
-    print(top_5)
-
-    name = results_path+"/results-snnbert-dcs-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
-
-    f = open(name, "a")
-
-    f.write("batch,top1,top3,top5\n")
-    f.write(str(batch_id)+","+str(top_1) + "," + str(top_3) + "," + str(top_5) + "\n")
-    f.close()
+        input_bad_ids = tf.keras.Input(shape=(sentence_length,), name="input_bad_ids")
+        input_bad_mask = tf.keras.Input(shape=(sentence_length,), name="input_bad_mask")
+        input_bad_type = tf.keras.Input(shape=(sentence_length,), name="input_bad_type")
 
 
-def training_data_chunk(id, valid_perc, chunk_size):
+        output_code = embedding_model([input_code_ids, input_code_mask, input_code_type])
+        output_desc = embedding_model([input_desc_ids, input_desc_mask, input_desc_type])
+        output_bad_desc = embedding_model([input_bad_ids, input_bad_mask, input_bad_type])
 
-    init_trainig = chunk_size * id
-    init_valid = int(chunk_size * id + chunk_size * valid_perc)
-    end_valid = int(chunk_size * id + chunk_size)
+        cos_good_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_good_sim')([output_code, output_desc])
 
-    return init_trainig, init_valid, end_valid
+        cos_model = tf.keras.Model(inputs=[input_code_ids, input_code_mask, input_code_type, input_desc_ids, input_desc_mask, input_desc_type], outputs=[cos_good_sim],
+                                        name='cos_model')
 
+
+        # Used in tests
+        embedded_code = tf.keras.Input(shape=(output_code.shape[1],), name="embedded_code")
+        embedded_desc = tf.keras.Input(shape=(output_code.shape[1],), name="embedded_desc")
+
+        dot = tf.keras.layers.Dot(axes=1, normalize=True)([embedded_code, embedded_desc])
+        dot_model = tf.keras.Model(inputs=[embedded_code, embedded_desc], outputs=[dot],
+                                        name='dot_model')
+
+        cos_bad_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_bad_sim')([output_code, output_bad_desc])
+
+        loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
+                                      output_shape=lambda x: x[0],
+                                      name='loss')([cos_good_sim, cos_bad_sim])
+
+        training_model = tf.keras.Model(inputs=[input_code_ids, input_code_mask, input_code_type,
+                                                input_desc_ids, input_desc_mask, input_desc_type,
+                                                input_bad_ids, input_bad_mask, input_bad_type], outputs=[loss],
+                                        name='training_model')
+
+        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
+        # y_true-y_true avoids warning
+
+        return training_model, embedding_model, cos_model, dot_model
+
+# snn_dcs_weights
+
+    def test(self, embedding_model, dot_model, results_path, code_length, desc_length):
+        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, 500)
+        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, 500) # 10000
+
+        test_tokens = pad(test_tokens, code_length)
+        test_desc = pad(test_desc, desc_length)
+
+        embedding_tokens = [None] * len(test_tokens)
+        print("Embedding tokens...")
+        for idx,token in enumerate(test_tokens):
+
+            embedding_result = embedding_model(np.array(token).reshape(1,-1))
+            embedding_tokens[idx] = embedding_result.numpy()[0]
+
+        embedding_desc = [None] * len(test_desc)
+        print("Embedding descs...")
+        for idx,desc in enumerate(test_desc):
+
+            embedding_result = embedding_model(np.array(desc).reshape(1,-1))
+            embedding_desc[idx] = embedding_result.numpy()[0]
+
+        self.test_embedded(dot_model, embedding_tokens, embedding_desc, results_path)
+
+
+    def test(self, embedding_model, dot_model, results_path, code_length, desc_length,  tokenizer):
+        test_tokens = load_hdf5(self.data_path + "test.tokens.h5", 0, 500)
+        test_desc = load_hdf5(self.data_path + "test.desc.h5", 0, 500)
+
+        print("Embedding tokens...")
+        for idx, token in enumerate(test_tokens):
+            encoded_code = tokenizer.batch_encode_plus(
+                [ (" ".join([self.vocab_code[x] for x in token]))],
+                add_special_tokens=True,
+                max_length=code_length,
+                # return_attention_mask=True,
+                # return_token_type_ids=True,
+                pad_to_max_length=code_length,
+                return_tensors="tf",
+            )["input_ids"].numpy()[0]
+
+            embedding_result = embedding_model(encoded_code.reshape(1, -1))
+
+            test_tokens[idx] = embedding_result.numpy()[0]
+
+        print("Embedding descriptions...")
+        for idx, desc in enumerate(test_desc):
+            encoded_desc = tokenizer.batch_encode_plus(
+                [ (" ".join([self.vocab_desc[x] for x in desc]))],
+                add_special_tokens=True,
+                max_length=code_length,
+                # return_attention_mask=True,
+                # return_token_type_ids=True,
+                pad_to_max_length=code_length,
+                return_tensors="tf",
+            )["input_ids"].numpy()[0]
+
+            embedding_result = embedding_model(encoded_desc.reshape(1, -1))
+            test_desc[idx] = embedding_result.numpy()[0]
+
+        self.test_embedded(dot_model, test_tokens, test_desc, results_path)
+
+    def training_data_chunk(self, id, valid_perc):
+
+        init_trainig = self.chunk_size * id
+        init_valid = int(self.chunk_size * id + self.chunk_size * valid_perc)
+        end_valid = int(self.chunk_size * id + self.chunk_size)
+
+        return init_trainig, init_valid, end_valid
+
+
+    def load_dataset(self, data_chunk_id, batch_size, tokenizer):
+
+        init_trainig, init_valid, end_valid = self.training_data_chunk(data_chunk_id, 1)
+
+        longer_sentence, number_tokens = snn_dcs.get_dataset_meta_hardcoded()
+
+        training_set_generator = DataGeneratorDCS(self.data_path + "train.tokens.h5", self.data_path + "train.desc.h5",
+                                                  batch_size, init_trainig, init_valid, longer_sentence, longer_sentence)
+
+
+
+        training_set_generator = DataGeneratorDCSBERT(self.data_path + "train.tokens.h5", self.data_path + "train.desc.h5",
+                                                      batch_size, init_trainig, init_valid, longer_sentence,
+                                                      longer_sentence, tokenizer, self.vocab_code, self.vocab_desc)
+
+        return training_set_generator
 
 if __name__ == "__main__":
-    script_path = str(pathlib.Path(__file__).parent)
 
-    print("Running SNN Bert Model")
-
-    # dataset info
-    total_length = 10000 #18223872
-    chunk_size = 10000
-
-    number_chunks = total_length/chunk_size - 1
-    number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
+    print("Running SNN Model")
 
     args = sys.argv
     data_chunk_id = 0
     if len(args) > 1:
         data_chunk_id = int(args[1])
 
-    data_chunk_id = min(data_chunk_id, int(number_chunks))
+    script_path = str(pathlib.Path(__file__).parent)
 
-    data_path = script_path+"/../data/deep-code-search/dummy/"
+    data_path = script_path + "/../data/deep-code-search/dummy/"
 
-    longer_sentence, number_tokens = get_dataset_meta_hardcoded()
-    embedding_size = None
+    snn_dcs = SNNBERT_DCS(data_path, data_chunk_id)
 
-    #tf.debugging.set_log_device_placement(True)
+    BATCH_SIZE = 32 * 1
 
-    strategy = tf.distribute.MirroredStrategy()
-    #with strategy.scope():
+    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
 
-    #print("Building model and loading weights")
-    training_model, embedding_model, cos_model, dot_model = generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
-        #load_weights(training_model, script_path+"/../weights")
+    dataset = snn_dcs.load_dataset(0, BATCH_SIZE, tokenizer)
 
-    init_trainig, init_valid, end_valid = training_data_chunk(data_chunk_id, 1.0, chunk_size)
+    longer_sentence, number_tokens = snn_dcs.get_dataset_meta_hardcoded()
 
-    print("Training model with chunk number " + str(data_chunk_id) + " of " + str(number_chunks))
+    embedding_size = 2048
 
-    batch_size = 32 * 2
+    multi_gpu = False
 
-    vocab_code_pckl = load_pickle(data_path+"vocab.tokens.pkl")
-    vocab_code = {y: x for x, y in vocab_code_pckl.items()}
+    print("Building model and loading weights")
+    if multi_gpu:
+        tf.debugging.set_log_device_placement(False)
 
-    vocab_desc_pckl = load_pickle(data_path+"vocab.desc.pkl")
-    vocab_desc = {y: x for x, y in vocab_desc_pckl.items()}
+        strategy = tf.distribute.MirroredStrategy()
 
-    tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-uncased") #RobertaTokenizer.from_pretrained("microsoft/codebert-base")
+        with strategy.scope():
+            training_model, embedding_model, cos_model, dot_model = snn_dcs.generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
+            snn_dcs.load_weights(training_model, script_path+"/../weights/snn_dcs_weights")
+    else:
+        training_model, embedding_model, cos_model, dot_model = snn_dcs.generate_model(embedding_size, number_tokens,
+                                                                                       longer_sentence, 0.05)
+        snn_dcs.load_weights(training_model, script_path + "/../weights/snn_dcs_weights")
 
-    training_set_generator = DataGeneratorDCSBERT(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_sentence, longer_sentence, tokenizer, vocab_code, vocab_desc)
+    snn_dcs.train(training_model, dataset, script_path+"/../weights/snn_dcs_weights")
 
-    #valid_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_valid, end_valid, longer_sentence, longer_sentence)
 
-    train(training_model, training_set_generator, script_path+"/../weights/snnbert_dcs_weights", batch_size)
+    snn_dcs.test(embedding_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence, tokenizer)
 
-    test(data_path, embedding_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence, data_chunk_id, vocab_code, vocab_desc, tokenizer)
 

@@ -63,16 +63,19 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
 
         negative_description_vector = desc.copy()
 
-        desc = self.tokenize(desc)
-        code = self.tokenize(code)
+        desc_ids,  desc_attention, desc_type = self.tokenize(desc)
+        code_ids,  code_attention, code_type = self.tokenize(code)
 
         random.shuffle(negative_description_vector)
 
-        negative_description_vector = self.tokenize(negative_description_vector)
+        negative_ids, negative_attention,  negative_type = self.tokenize(negative_description_vector)
 
         results = np.zeros((self.batch_size, 1))
 
-        return [np.array(code), np.array(desc), np.array(negative_description_vector)], results
+        return [np.array(desc_ids), np.array(desc_attention), np.array(desc_type),
+                np.array(code_ids), np.array(code_attention), np.array(code_type),
+                np.array(negative_ids), np.array(negative_attention), np.array(negative_type)],\
+               results
         #return [np.zeros((self.batch_size, self.code_length)), np.zeros((self.batch_size, self.code_length)), np.zeros((self.batch_size, self.code_length))], results
 
     def test(self, idx):
@@ -82,15 +85,17 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
         return self.__len__()
 
     def tokenize(self, text_list):
-        return self.tokenizer.batch_encode_plus(
+        tokenization = self.tokenizer.batch_encode_plus(
             text_list,
             add_special_tokens=True,
             max_length=self.code_length,
-            # return_attention_mask=True,
-            # return_token_type_ids=True,
-            pad_to_max_length=self.code_length,
-            return_tensors="tf",
-        )["input_ids"]
+            return_attention_mask=True,
+            return_token_type_ids=True,
+            padding='max_length',
+            truncation=True,
+            return_tensors="tf"
+        )
+        return tokenization["input_ids"], tokenization["attention_mask"], tokenization["token_type_ids"]
 
     def pad(self, data, len=None):
         from tensorflow.keras.preprocessing.sequence import pad_sequences
