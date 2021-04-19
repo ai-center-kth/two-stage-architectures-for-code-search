@@ -4,12 +4,11 @@ import numpy as np
 import random
 
 class DataGeneratorDCSBERT(keras.utils.Sequence):
-    def __init__(self, tokens_path, desc_path, batch_size, init_pos, last_pos, code_length, desc_length, tokenizer, vocab_code, vocab_desc):
+    def __init__(self, tokens_path, desc_path, batch_size, init_pos, last_pos, max_length, tokenizer, vocab_code, vocab_desc):
         self.tokens_path = tokens_path
         self.desc_path = desc_path
         self.batch_size = batch_size
-        self.code_length = code_length
-        self.desc_length = desc_length
+        self.max_length = max_length
         self.tokenizer = tokenizer
         self.vocab_code = vocab_code
         self.vocab_desc = vocab_desc
@@ -42,8 +41,10 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
         start_offset = start_offset % self.data_len
         chunk_size = self.batch_size
 
-        code = []
-        desc = []
+        tokenized_ids = []
+        tokenized_mask = []
+        tokenized_type = []
+        labels = []
 
         for offset in range(self.init_pos + start_offset, self.init_pos + start_offset + chunk_size):
             offset = offset % self.full_data_len
@@ -52,31 +53,34 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
             len, pos = self.code_index[offset]['length'], self.code_index[offset]['pos']
             extracted_code = self.code_data[pos:pos + len].copy()
 
-            code.append( (" ".join([self.vocab_code[x] for x in extracted_code])) )
+            code =  (" ".join([self.vocab_code[x] for x in extracted_code]))
 
             # Desc
-            len, pos = self.desc_index[offset]['length'], self.desc_index[offset]['pos']
-            extracted_desc = self.desc_data[pos:pos + len].copy()
+            if offset % 2 == 0:
+                len, pos = self.desc_index[offset]['length'], self.desc_index[offset]['pos']
+                extracted_desc = self.desc_data[pos:pos + len].copy()
+                labels.append([1])
+            else:
+                # A half of the entries are going to be negative examples
+                random_index = random.randint(0, self.full_data_len - 1)
+                len, pos = self.desc_index[random_index]['length'], self.desc_index[random_index]['pos']
+                extracted_desc = self.desc_data[pos:pos + len].copy()
+                labels.append([0])
 
-            desc.append( (" ".join([self.vocab_desc[x] for x in extracted_desc])) )
-            # " ".join([reversed_merged[x] for x in train_tokens[0]])
+            desc = ( (" ".join([self.vocab_desc[x] for x in extracted_desc])) )
 
-        negative_description_vector = desc.copy()
+            input_ids, attention_mask, token_type_ids, = self.tokenize_sentences(desc, code)
 
-        desc_ids,  desc_attention, desc_type = self.tokenize(desc)
-        code_ids,  code_attention, code_type = self.tokenize(code)
+            tokenized_ids.append(input_ids)
+            tokenized_mask.append(attention_mask)
+            tokenized_type.append(token_type_ids)
 
-        random.shuffle(negative_description_vector)
 
-        negative_ids, negative_attention,  negative_type = self.tokenize(negative_description_vector)
 
-        results = np.zeros((self.batch_size, 1))
-
-        return [np.array(desc_ids), np.array(desc_attention), np.array(desc_type),
-                np.array(code_ids), np.array(code_attention), np.array(code_type),
-                np.array(negative_ids), np.array(negative_attention), np.array(negative_type)],\
-               results
-        #return [np.zeros((self.batch_size, self.code_length)), np.zeros((self.batch_size, self.code_length)), np.zeros((self.batch_size, self.code_length))], results
+        return [np.array(tokenized_ids),
+                np.array(tokenized_mask),
+                np.array(tokenized_type)
+                ], np.array(labels)
 
     def test(self, idx):
         return self.__getitem__(idx)
@@ -84,19 +88,20 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
     def len(self):
         return self.__len__()
 
-    def tokenize(self, text_list):
-        tokenization = self.tokenizer.batch_encode_plus(
-            text_list,
-            add_special_tokens=True,
-            max_length=self.code_length,
-            return_attention_mask=True,
-            return_token_type_ids=True,
-            padding='max_length',
-            truncation=True,
-            return_tensors="tf"
-        )
-        return tokenization["input_ids"], tokenization["attention_mask"], tokenization["token_type_ids"]
+    def encode_sentence(self, s):
+        tokens = list(self.tokenizer.tokenize(s))
+        tokens.append('[SEP]')
+        return self.tokenizer.convert_tokens_to_ids(tokens)
 
-    def pad(self, data, len=None):
-        from tensorflow.keras.preprocessing.sequence import pad_sequences
-        return pad_sequences(data, maxlen=len, padding='post', truncating='post', value=0)
+    def tokenize_sentences(self, input1_str, input2_str):
+        input1_encoded = self.encode_sentence(input1_str)
+        input2_encoded = self.encode_sentence(input2_str)
+        cls_ = self.tokenizer.convert_tokens_to_ids(['[CLS]'])
+        concated = cls_ + input1_encoded + input2_encoded
+        concated_ids = concated + [0] * ((self.max_length) - len(concated))
+
+        masks = [1] * len(concated) + [0] * ((self.max_length) - len(concated))
+        type_ids = [0] + [0] * len(input1_encoded) + [1] * len(input2_encoded) + [0] * (
+                    (self.max_length) - (1 + len(input1_encoded) + len(input2_encoded)))
+
+        return concated_ids, masks, type_ids
