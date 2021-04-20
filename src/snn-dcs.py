@@ -75,7 +75,6 @@ class SNN_DCS(CodeSearchManager):
         cos_model = tf.keras.Model(inputs=[input_code, input_desc], outputs=[cos_good_sim],
                                         name='cos_model')
 
-
         # Used in tests
         embedded_code = tf.keras.Input(shape=(output_code.shape[1],), name="embedded_code")
         embedded_desc = tf.keras.Input(shape=(output_code.shape[1],), name="embedded_desc")
@@ -98,7 +97,7 @@ class SNN_DCS(CodeSearchManager):
 
         return training_model, embedding_model, cos_model, dot_model
 
-# snn_dcs_weights
+
 
     def test(self, embedding_model, dot_model, results_path, code_length, desc_length):
         test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, 100)
@@ -183,7 +182,7 @@ if __name__ == "__main__":
                                                                                        longer_sentence, 0.05)
         snn_dcs.load_weights(training_model, script_path + "/../weights/snn_dcs_weights")
 
-    #snn_dcs.train(training_model, dataset, script_path+"/../weights/snn_dcs_weights")
+    snn_dcs.train(training_model, dataset, script_path+"/../weights/snn_dcs_weights")
 
     snn_dcs.test(embedding_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence)
 

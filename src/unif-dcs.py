@@ -113,7 +113,7 @@ class UNIF_DCS(CodeSearchManager):
 
         return training_model, model_code, model_query, dot_model
 
-# snn_dcs_weights
+
 
     def test(self, model_code, model_query, dot_model, results_path, code_length, desc_length):
         test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, 100)
@@ -161,7 +161,7 @@ class UNIF_DCS(CodeSearchManager):
 
 if __name__ == "__main__":
 
-    print("Running SNN Model")
+    print("Running UNIF Model")
 
     args = sys.argv
     data_chunk_id = 0
@@ -172,13 +172,13 @@ if __name__ == "__main__":
 
     data_path = script_path + "/../data/deep-code-search/drive/"
 
-    snn_dcs = UNIF_DCS(data_path, data_chunk_id)
+    unif_dcs = UNIF_DCS(data_path, data_chunk_id)
 
     BATCH_SIZE = 32 * 1
 
-    dataset = snn_dcs.load_dataset(0, BATCH_SIZE)
+    dataset = unif_dcs.load_dataset(0, BATCH_SIZE)
 
-    longer_code, longer_desc, number_code_tokens, number_desc_tokens= snn_dcs.get_dataset_meta_hardcoded()
+    longer_code, longer_desc, number_code_tokens, number_desc_tokens= unif_dcs.get_dataset_meta_hardcoded()
 
     embedding_size = 2048
 
@@ -191,14 +191,14 @@ if __name__ == "__main__":
         strategy = tf.distribute.MirroredStrategy()
 
         with strategy.scope():
-            training_model, model_code, model_query, dot_model = snn_dcs.generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
-            snn_dcs.load_weights(training_model, script_path+"/../weights/unif_dcs_weights")
+            training_model, model_code, model_query, dot_model = unif_dcs.generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
+            unif_dcs.load_weights(training_model, script_path+"/../weights/unif_dcs_weights")
     else:
-        training_model, embedding_model, cos_model, dot_model = snn_dcs.generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
-        snn_dcs.load_weights(training_model, script_path + "/../weights/unif_dcs_weights")
+        training_model, embedding_model, cos_model, dot_model = unif_dcs.generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
+        unif_dcs.load_weights(training_model, script_path + "/../weights/unif_dcs_weights")
 
-    #snn_dcs.train(training_model, dataset, script_path+"/../weights/snn_dcs_weights")
+    unif_dcs.train(training_model, dataset, script_path+"/../weights/unif_dcs_weights")
 
-    snn_dcs.test(model_code, model_query, dot_model, script_path+"/../results", longer_code, longer_desc)
+    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results", longer_code, longer_desc)
 
 
