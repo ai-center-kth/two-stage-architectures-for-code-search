@@ -137,7 +137,7 @@ class SNN_DCS(CodeSearchManager):
 
         init_trainig, init_valid, end_valid = self.training_data_chunk(data_chunk_id, 0.8)
 
-        longer_sentence, number_tokens = snn_dcs.get_dataset_meta_hardcoded()
+        longer_sentence, number_tokens = self.get_dataset_meta_hardcoded()
 
         training_set_generator = DataGeneratorDCS(self.data_path + "train.tokens.h5", self.data_path + "train.desc.h5",
                                                   batch_size, init_trainig, init_valid, longer_sentence, longer_sentence)
