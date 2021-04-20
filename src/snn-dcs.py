@@ -3,269 +3,188 @@ import sys
 
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "pickle5"])
-
-
-# import pickle5 as pickle
 
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
-import pickle
-import sys
-import tables
-from tqdm import tqdm
-import numpy as np
-import os.path
-import time
 import pathlib
 from dcs_data_generator import DataGeneratorDCS
 from help import *
+from code_search_manager import CodeSearchManager
 
-def get_dataset_meta():
-    # 18223872 (len) #1000000
-    code_vector = load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
-    desc_vector = load_hdf5(data_path + "train.desc.h5", 0, 18223872)
-    vocabulary_merged = load_pickle(data_path + "vocab.merged.pkl")
+class SNN_DCS(CodeSearchManager):
 
-    longer_code = max(len(t) for t in code_vector)
-    print("longer_code", longer_code)
-    longer_desc = max(len(t) for t in desc_vector)
-    print("longer_desc", longer_desc)
+    def __init__(self, data_path, data_chunk_id=0):
+        self.data_path = data_path
 
-    longer_sentence = max(longer_code, longer_desc)
+        # dataset info
+        self.total_length = 18223872
+        self.chunk_size = 10000 // 2  # 18223872  # 10000
 
-    number_tokens = len(vocabulary_merged)
 
-    return longer_sentence, number_tokens
+        number_chunks = self.total_length / self.chunk_size - 1
+        self.number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
 
+        self.data_chunk_id = min(data_chunk_id, int(self.number_chunks))
+        print("### Loading SNN model with DCS chunk number " + str(data_chunk_id) + " [0," + str(number_chunks)+"]")
 
-def get_dataset_meta_hardcoded():
-    return 410, 13645
+    def get_dataset_meta_hardcoded(self):
+        return 410, 13645
 
+    def get_dataset_meta(self):
+        # 18223872 (len) #1000000
+        code_vector = load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
+        desc_vector = load_hdf5(data_path + "train.desc.h5", 0, 18223872)
+        vocabulary_merged = load_pickle(data_path + "vocab.merged.pkl")
 
-def generate_model(embedding_size, number_tokens, sentence_length, hinge_loss_margin):
-    input_layer = tf.keras.Input(shape=(sentence_length,), name="input")
-    embedding_layer = tf.keras.layers.Embedding(number_tokens, embedding_size, name="embeding")(input_layer)
+        longer_code = max(len(t) for t in code_vector)
+        print("longer_code", longer_code)
+        longer_desc = max(len(t) for t in desc_vector)
+        print("longer_desc", longer_desc)
 
-    attention_layer = tf.keras.layers.Attention(name="attention")([embedding_layer, embedding_layer])
+        longer_sentence = max(longer_code, longer_desc)
 
-    sum_layer = tf.keras.layers.Lambda(lambda x: K.sum(x, axis=1), name="sum")(attention_layer)
-    # average_layer = tf.keras.layers.Lambda(lambda x: K.mean(x, axis=1), name="average")( attention_layer)
+        number_tokens = len(vocabulary_merged)
 
-    embedding_model = tf.keras.Model(inputs=[input_layer], outputs=[sum_layer], name='siamese_model')
+        return longer_sentence, number_tokens
 
-    input_code = tf.keras.Input(shape=(sentence_length,), name="code")
-    input_desc = tf.keras.Input(shape=(sentence_length,), name="desc")
-    input_bad_desc = tf.keras.Input(shape=(sentence_length,), name="bad_desc")
 
-    output_code = embedding_model(input_code)
-    output_desc = embedding_model(input_desc)
-    output_bad_desc = embedding_model(input_bad_desc)
+    def generate_model(self, embedding_size, number_tokens, sentence_length, hinge_loss_margin):
+        input_layer = tf.keras.Input(shape=(sentence_length,), name="input")
+        embedding_layer = tf.keras.layers.Embedding(number_tokens, embedding_size, name="embeding")(input_layer)
 
-    cos_good_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_good_sim')([output_code, output_desc])
+        attention_layer = tf.keras.layers.Attention(name="attention")([embedding_layer, embedding_layer])
 
-    cos_model = tf.keras.Model(inputs=[input_code, input_desc], outputs=[cos_good_sim],
-                                    name='cos_model')
+        sum_layer = tf.keras.layers.Lambda(lambda x: K.sum(x, axis=1), name="sum")(attention_layer)
+        # average_layer = tf.keras.layers.Lambda(lambda x: K.mean(x, axis=1), name="average")( attention_layer)
 
+        embedding_model = tf.keras.Model(inputs=[input_layer], outputs=[sum_layer], name='siamese_model')
 
-    # Used in tests
-    embedded_code = tf.keras.Input(shape=(output_code.shape[1],), name="embedded_code")
-    embedded_desc = tf.keras.Input(shape=(output_code.shape[1],), name="embedded_desc")
+        input_code = tf.keras.Input(shape=(sentence_length,), name="code")
+        input_desc = tf.keras.Input(shape=(sentence_length,), name="desc")
+        input_bad_desc = tf.keras.Input(shape=(sentence_length,), name="bad_desc")
 
-    dot = tf.keras.layers.Dot(axes=1, normalize=True)([embedded_code, embedded_desc])
-    dot_model = tf.keras.Model(inputs=[embedded_code, embedded_desc], outputs=[dot],
-                                    name='dot_model')
+        output_code = embedding_model(input_code)
+        output_desc = embedding_model(input_desc)
+        output_bad_desc = embedding_model(input_bad_desc)
 
-    cos_bad_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_bad_sim')([output_code, output_bad_desc])
+        cos_good_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_good_sim')([output_code, output_desc])
 
-    loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
-                                  output_shape=lambda x: x[0],
-                                  name='loss')([cos_good_sim, cos_bad_sim])
+        cos_model = tf.keras.Model(inputs=[input_code, input_desc], outputs=[cos_good_sim],
+                                        name='cos_model')
 
-    training_model = tf.keras.Model(inputs=[input_code, input_desc, input_bad_desc], outputs=[loss],
-                                    name='training_model')
 
-    training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
-    # y_true-y_true avoids warning
+        # Used in tests
+        embedded_code = tf.keras.Input(shape=(output_code.shape[1],), name="embedded_code")
+        embedded_desc = tf.keras.Input(shape=(output_code.shape[1],), name="embedded_desc")
 
-    return training_model, embedding_model, cos_model, dot_model
+        dot = tf.keras.layers.Dot(axes=1, normalize=True)([embedded_code, embedded_desc])
+        dot_model = tf.keras.Model(inputs=[embedded_code, embedded_desc], outputs=[dot],
+                                        name='dot_model')
 
+        cos_bad_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_bad_sim')([output_code, output_bad_desc])
 
-def load_weights(model, path):
-    if os.path.isfile(path+'/snn_dcs_weights.index'):
-        model.load_weights(path+'/snn_dcs_weights')
-        print("Weights loaded!")
-    else:
-        print("Warning! No weights loaded!")
+        loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
+                                      output_shape=lambda x: x[0],
+                                      name='loss')([cos_good_sim, cos_bad_sim])
 
-# n >= 1
-def get_top_n(n, results):
-    count = 0
-    for r in results:
-        if results[r] < n:
-            count+= 1
-    return count / len(results)
+        training_model = tf.keras.Model(inputs=[input_code, input_desc, input_bad_desc], outputs=[loss],
+                                        name='training_model')
 
+        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
+        # y_true-y_true avoids warning
 
-def train(trainig_model, training_set_generator, valid_set_generator, weights_path, batch_size=32):
-    trainig_model.fit(training_set_generator, epochs=1, validation_data=valid_set_generator, batch_size=batch_size)
-    trainig_model.save_weights(weights_path)
-    print("Model saved!")
+        return training_model, embedding_model, cos_model, dot_model
 
+# snn_dcs_weights
 
+    def test(self, embedding_model, dot_model, results_path, code_length, desc_length):
+        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, 100)
+        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, 100) # 10000
 
+        test_tokens = pad(test_tokens, code_length)
+        test_desc = pad(test_desc, desc_length)
 
-def test(data_path, embedding_model, cos_model, dot_model, results_path, code_length, desc_length, batch_id):
-    test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 10000)
-    test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 10000)
+        embedding_tokens = [None] * len(test_tokens)
+        print("Embedding tokens...")
+        for idx,token in enumerate(test_tokens):
 
-    test_tokens = pad(test_tokens, code_length)
-    test_desc = pad(test_desc, desc_length)
+            embedding_result = embedding_model(np.array(token).reshape(1,-1))
+            embedding_tokens[idx] = embedding_result.numpy()[0]
 
-    print("Embedding tokens...")
-    for idx,token in enumerate(test_tokens):
+        embedding_desc = [None] * len(test_desc)
+        print("Embedding descs...")
+        for idx,desc in enumerate(test_desc):
 
-        embedding_result = embedding_model(np.array(token).reshape(1,-1))
-        test_tokens[idx] = embedding_result.numpy()[0]
+            embedding_result = embedding_model(np.array(desc).reshape(1,-1))
+            embedding_desc[idx] = embedding_result.numpy()[0]
 
-    print("Embedding descs...")
-    for idx,desc in enumerate(test_desc):
+        self.test_embedded(dot_model, embedding_tokens, embedding_desc, results_path)
 
-        embedding_result = embedding_model(np.array(desc).reshape(1,-1))
-        test_desc[idx] = embedding_result.numpy()[0]
 
-    results = {}
-    pbar = tqdm(total=len(test_desc))
 
-    for rowid, desc in enumerate(test_desc):
+    def training_data_chunk(self, id, valid_perc):
 
-        expected_best_result = dot_model.predict([test_tokens[rowid].reshape((1, -1)), test_desc[rowid].reshape((1, -1))])[0][0]
+        init_trainig = self.chunk_size * id
+        init_valid = int(self.chunk_size * id + self.chunk_size * valid_perc)
+        end_valid = int(self.chunk_size * id + self.chunk_size)
 
-        deleted_tokens = np.delete(test_tokens, rowid, 0)
+        return init_trainig, init_valid, end_valid
 
-        tiled_desc = np.tile(desc, (deleted_tokens.shape[0], 1))
 
-        prediction = dot_model.predict([deleted_tokens, tiled_desc], batch_size=32*4)
+    def load_dataset(self, data_chunk_id, batch_size):
 
-        results[rowid] = len(prediction[prediction > expected_best_result])
+        init_trainig, init_valid, end_valid = self.training_data_chunk(data_chunk_id, 0.8)
 
-        pbar.update(1)
-    pbar.close()
+        longer_sentence, number_tokens = snn_dcs.get_dataset_meta_hardcoded()
 
-    top_1 = get_top_n(1, results)
-    top_3 = get_top_n(3, results)
-    top_5 = get_top_n(5, results)
-
-    print(top_1)
-    print(top_3)
-    print(top_5)
-
-    name = results_path + "/results-snn-dcs-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
-
-    f = open(name, "a")
-
-    f.write("batch,top1,top3,top5\n")
-    f.write(str(batch_id) + "," + str(top_1) + "," + str(top_3) + "," + str(top_5) + "\n")
-    f.close()
-
-
-def test_legacy(data_path, cos_model, results_path, code_length, desc_length, batch_id):
-
-    test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 10000)
-    test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 10000)
-
-    test_tokens = pad(test_tokens, code_length)
-    test_desc = pad(test_desc, desc_length)
-
-    results = {}
-    pbar = tqdm(total=len(test_desc))
-
-    for rowid, desc in enumerate(test_desc):
-        expected_best_result = cos_model.predict([test_tokens[rowid].reshape((1, -1)), test_desc[rowid].reshape((1, -1))])[0][0]
-
-        deleted_tokens = np.delete(test_tokens, rowid, 0)
-
-        tiled_desc = np.tile(desc, (deleted_tokens.shape[0], 1))
-
-        ress = cos_model.predict([deleted_tokens, tiled_desc], batch_size=32*4)
-
-        results[rowid] = len(ress[ress > expected_best_result])
-
-        pbar.update(1)
-    pbar.close()
-
-    top_1 = get_top_n(1, results)
-    top_3 = get_top_n(3, results)
-    top_5 = get_top_n(5, results)
-
-    print(top_1)
-    print(top_3)
-    print(top_5)
-
-    name = results_path+"/results-snn-dcs-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
-
-    f = open(name, "a")
-
-    f.write("batch,top1,top3,top5\n")
-    f.write(str(batch_id)+","+str(top_1) + "," + str(top_3) + "," + str(top_5) + "\n")
-    f.close()
-
-
-def training_data_chunk(id, valid_perc, chunk_size):
-
-    init_trainig = chunk_size * id
-    init_valid = int(chunk_size * id + chunk_size * valid_perc)
-    end_valid = int(chunk_size * id + chunk_size)
-
-    return init_trainig, init_valid, end_valid
-
+        training_set_generator = DataGeneratorDCS(self.data_path + "train.tokens.h5", self.data_path + "train.desc.h5",
+                                                  batch_size, init_trainig, init_valid, longer_sentence, longer_sentence)
+        return training_set_generator
 
 if __name__ == "__main__":
-    script_path = str(pathlib.Path(__file__).parent)
 
     print("Running SNN Model")
-
-    # dataset info
-    total_length = 18223872
-    chunk_size = 18223872 #1000000
-
-    number_chunks = total_length/chunk_size - 1
-    number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
 
     args = sys.argv
     data_chunk_id = 0
     if len(args) > 1:
         data_chunk_id = int(args[1])
 
-    data_chunk_id = min(data_chunk_id, int(number_chunks))
+    script_path = str(pathlib.Path(__file__).parent)
 
-    data_path = script_path+"/../data/deep-code-search/processed/"
+    data_path = script_path + "/../data/deep-code-search/processed/"
 
-    longer_sentence, number_tokens = get_dataset_meta_hardcoded()
+    snn_dcs = SNN_DCS(data_path, data_chunk_id)
+
+    BATCH_SIZE = 32 * 1
+
+    dataset = snn_dcs.load_dataset(0, BATCH_SIZE)
+
+    longer_sentence, number_tokens = snn_dcs.get_dataset_meta_hardcoded()
+
     embedding_size = 2048
 
-    #tf.debugging.set_log_device_placement(True)
+    multi_gpu = False
 
-    strategy = tf.distribute.MirroredStrategy()
-    with strategy.scope():
+    print("Building model and loading weights")
+    if multi_gpu:
+        tf.debugging.set_log_device_placement(False)
 
-        print("Building model and loading weights")
-        training_model, embedding_model, cos_model, dot_model = generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
-        load_weights(training_model, script_path+"/../weights")
+        strategy = tf.distribute.MirroredStrategy()
 
-    init_trainig, init_valid, end_valid = training_data_chunk(data_chunk_id, 0.8, chunk_size)
+        with strategy.scope():
+            training_model, embedding_model, cos_model, dot_model = snn_dcs.generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
+            snn_dcs.load_weights(training_model, script_path+"/../weights/snn_dcs_weights")
+    else:
+        training_model, embedding_model, cos_model, dot_model = snn_dcs.generate_model(embedding_size, number_tokens,
+                                                                                       longer_sentence, 0.05)
+        snn_dcs.load_weights(training_model, script_path + "/../weights/snn_dcs_weights")
 
-    print("Training model with chunk number " + str(data_chunk_id) + " of " + str(number_chunks))
+    #snn_dcs.train(training_model, dataset, script_path+"/../weights/snn_dcs_weights")
 
-    #batch_size = 64 * 2
+    snn_dcs.test(embedding_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence)
 
-    #training_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_sentence, longer_sentence)
-    #valid_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_valid, end_valid, longer_sentence, longer_sentence)
-
-    #train(training_model, training_set_generator, valid_set_generator, script_path+"/../weights/snn_dcs_weights", batch_size)
-
-    test(data_path, embedding_model, cos_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence, data_chunk_id)
 

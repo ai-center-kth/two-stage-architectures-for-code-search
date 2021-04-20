@@ -3,215 +3,202 @@ import sys
 
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "pickle5"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
-# import pickle5 as pickle
 import tensorflow as tf
 from tensorflow.keras import backend as K
-import pickle
-import sys
-import tables
-from tqdm import tqdm
-
-import os.path
-import time
 import pathlib
-
 from dcs_data_generator import DataGeneratorDCS
 from help import *
+from code_search_manager import CodeSearchManager
+
+class UNIF_DCS(CodeSearchManager):
+
+    def __init__(self, data_path, data_chunk_id=0):
+        self.data_path = data_path
+
+        # dataset info
+        self.total_length = 18223872
+        self.chunk_size = 100000   # 18223872  # 10000
 
 
-def get_dataset_meta():
-    # 18223872 (len) #1000000
-    code_vector = load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
-    desc_vector = load_hdf5(data_path + "train.desc.h5", 0, 18223872)
-    vocabulary_desc = load_pickle(data_path + "vocab.desc.pkl")
-    vocabulary_tokens = load_pickle(data_path + "vocab.tokens.pkl")
+        number_chunks = self.total_length / self.chunk_size - 1
+        self.number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
 
-    longer_code = max(len(t) for t in code_vector)
-    longer_desc = max(len(t) for t in desc_vector)
+        self.data_chunk_id = min(data_chunk_id, int(self.number_chunks))
+        print("### Loading UNIF model with DCS chunk number " + str(data_chunk_id) + " [0," + str(number_chunks)+"]")
 
-    number_code_tokens = len(vocabulary_desc)
-    number_desc_tokens = len(vocabulary_tokens)
+    def get_dataset_meta_hardcoded(self):
+        return 86, 410, 10001, 10001
 
-    return longer_code, longer_desc, number_code_tokens, number_desc_tokens
+    def get_dataset_meta(self):
+        # 18223872 (len) #1000000
+        code_vector = load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
+        desc_vector = load_hdf5(data_path + "train.desc.h5", 0, 18223872)
+        vocabulary_merged = load_pickle(data_path + "vocab.merged.pkl")
 
+        longer_code = max(len(t) for t in code_vector)
+        print("longer_code", longer_code)
+        longer_desc = max(len(t) for t in desc_vector)
+        print("longer_desc", longer_desc)
 
-def get_dataset_meta_hardcoded():
-    return 86, 410, 10001, 10001
+        longer_sentence = max(longer_code, longer_desc)
 
+        number_tokens = len(vocabulary_merged)
 
-def generate_model(embedding_size, number_code_tokens, number_desc_tokens, code_length, desc_length, hinge_loss_margin):
-
-    code_input = tf.keras.Input(shape=(code_length,), name="code_input")
-    code_embeding = tf.keras.layers.Embedding(number_code_tokens, embedding_size, name="code_embeding")(code_input)
-
-    attention_code = tf.keras.layers.Attention(name="attention_code")([code_embeding, code_embeding])
-
-    query_input = tf.keras.Input(shape=(desc_length,), name="query_input")
-    query_embeding = tf.keras.layers.Embedding(number_desc_tokens, embedding_size, name="query_embeding")(query_input)
-
-    code_output = tf.keras.layers.Lambda(lambda x: K.sum(x, axis=1), name="sum")(attention_code)
-    query_output = tf.keras.layers.Lambda(lambda x: K.mean(x, axis=1), name="average")(query_embeding)
-
-    # This model generates code embedding
-    model_code = tf.keras.Model(inputs=[code_input], outputs=[code_output], name='model_code')
-    # This model generates description/query embedding
-    model_query = tf.keras.Model(inputs=[query_input], outputs=[query_output], name='model_query')
-
-    # Cosine similarity
-    # If normalize set to True, then the output of the dot product is the cosine proximity between the two samples.
-    cos_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_sim')([code_output, query_output])
-
-    # This model calculates cosine similarity between code and query pairs
-    cos_model = tf.keras.Model(inputs=[code_input, query_input], outputs=[cos_sim], name='sim_model')
-
-    loss = tf.keras.layers.Flatten()(cos_sim)
-    # training_model = tf.keras.Model(inputs=[ code_input, query_input], outputs=[cos_sim],name='training_model')
-
-    model_code.compile(loss='cosine_proximity', optimizer='adam')
-    model_query.compile(loss='cosine_proximity', optimizer='adam')
-
-    cos_model.compile(loss='binary_crossentropy', optimizer='adam', metrics=["accuracy"])  # extract similarity
-
-    # Negative sampling
-    good_desc_input = tf.keras.Input(shape=(desc_length,), name="good_desc_input")
-    bad_desc_input = tf.keras.Input(shape=(desc_length,), name="bad_desc_input")
-
-    good_desc_output = cos_model([code_input, good_desc_input])
-    bad_desc_output = cos_model([code_input, bad_desc_input])
-
-    margin = 0.5
-    loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]), output_shape=lambda x: x[0],
-                                  name='loss')([good_desc_output, bad_desc_output])
-
-    training_model = tf.keras.Model(inputs=[code_input, good_desc_input, bad_desc_input], outputs=[loss],
-                                    name='training_model')
-
-    training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
-    # y_true-y_true avoids warning
-
-    return training_model, model_code, model_query, cos_model
+        return longer_sentence, number_tokens
 
 
-def load_weights(model, path):
-    if os.path.isfile(path+'/unif_dcs_weights.index'):
-        model.load_weights(path+'/unif_dcs_weights')
-        print("Weights loaded!")
-    else:
-        print("Warning!!  Weights not loaded")
+    def generate_model(self, embedding_size, number_code_tokens, number_desc_tokens, code_length, desc_length, hinge_loss_margin):
 
-# n >= 1
-def get_top_n(n, results):
-    count = 0
-    for r in results:
-        if results[r] < n:
-            count+= 1
-    return count / len(results)
+        code_input = tf.keras.Input(shape=(code_length,), name="code_input")
+        code_embeding = tf.keras.layers.Embedding(number_code_tokens, embedding_size, name="code_embeding")(code_input)
 
+        attention_code = tf.keras.layers.Attention(name="attention_code")([code_embeding, code_embeding])
 
-def train(trainig_model, training_set_generator, valid_set_generator, weights_path, batch_size):
-    trainig_model.fit(training_set_generator, epochs=1, validation_data=valid_set_generator, batch_size=batch_size)
-    trainig_model.save_weights(weights_path)
-    print("Model saved!")
+        query_input = tf.keras.Input(shape=(desc_length,), name="query_input")
+        query_embeding = tf.keras.layers.Embedding(number_desc_tokens, embedding_size, name="query_embeding")(
+            query_input)
 
+        code_output = tf.keras.layers.Lambda(lambda x: K.sum(x, axis=1), name="sum")(attention_code)
+        query_output = tf.keras.layers.Lambda(lambda x: K.mean(x, axis=1), name="average")(query_embeding)
 
-def test(data_path, cos_model, results_path, code_length, desc_length, batch_id):
-    test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 10000)
-    test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 10000)
+        # This model generates code embedding
+        model_code = tf.keras.Model(inputs=[code_input], outputs=[code_output], name='model_code')
+        # This model generates description/query embedding
+        model_query = tf.keras.Model(inputs=[query_input], outputs=[query_output], name='model_query')
 
-    test_tokens = pad(test_tokens, code_length)
-    test_desc = pad(test_desc, desc_length)
+        # Cosine similarity
+        # If normalize set to True, then the output of the dot product is the cosine proximity between the two samples.
+        cos_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_sim')([code_output, query_output])
 
-    results = {}
-    pbar = tqdm(total=len(test_desc))
+        # This model calculates cosine similarity between code and query pairs
+        cos_model = tf.keras.Model(inputs=[code_input, query_input], outputs=[cos_sim], name='sim_model')
 
-    for rowid, desc in enumerate(test_desc):
-        expected_best_result = cos_model.predict([test_tokens[rowid].reshape((1, -1)), test_desc[rowid].reshape((1, -1))])[0][0]
+        # Used in tests
+        embedded_code = tf.keras.Input(shape=(code_output.shape[1],), name="embedded_code")
+        embedded_desc = tf.keras.Input(shape=(query_output.shape[1],), name="embedded_desc")
 
-        deleted_tokens = np.delete(test_tokens, rowid, 0)
+        dot = tf.keras.layers.Dot(axes=1, normalize=True)([embedded_code, embedded_desc])
+        dot_model = tf.keras.Model(inputs=[embedded_code, embedded_desc], outputs=[dot],
+                                        name='dot_model')
 
-        tiled_desc = np.tile(desc, (deleted_tokens.shape[0], 1))
+        loss = tf.keras.layers.Flatten()(cos_sim)
+        # training_model = tf.keras.Model(inputs=[ code_input, query_input], outputs=[cos_sim],name='training_model')
 
-        ress = cos_model.predict([deleted_tokens, tiled_desc], batch_size=32*4)
+        model_code.compile(loss='cosine_proximity', optimizer='adam')
+        model_query.compile(loss='cosine_proximity', optimizer='adam')
 
-        results[rowid] = len(ress[ress > expected_best_result])
+        cos_model.compile(loss='binary_crossentropy', optimizer='adam', metrics=["accuracy"])  # extract similarity
 
-        pbar.update(1)
-    pbar.close()
+        # Negative sampling
+        good_desc_input = tf.keras.Input(shape=(desc_length,), name="good_desc_input")
+        bad_desc_input = tf.keras.Input(shape=(desc_length,), name="bad_desc_input")
 
-    top_1 = get_top_n(1, results)
-    top_3 = get_top_n(3, results)
-    top_5 = get_top_n(5, results)
+        good_desc_output = cos_model([code_input, good_desc_input])
+        bad_desc_output = cos_model([code_input, bad_desc_input])
 
-    print(top_1)
-    print(top_3)
-    print(top_5)
+        margin = 0.5
+        loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
+                                      output_shape=lambda x: x[0],
+                                      name='loss')([good_desc_output, bad_desc_output])
 
-    name = results_path+"/results-unif-dcs-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
+        training_model = tf.keras.Model(inputs=[code_input, good_desc_input, bad_desc_input], outputs=[loss],
+                                        name='training_model')
 
-    f = open(name, "a")
+        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
+        # y_true-y_true avoids warning
 
-    f.write("batch,top1,top3,top5\n")
-    f.write(str(batch_id)+","+str(top_1) + "," + str(top_3) + "," + str(top_5) + "\n")
-    f.close()
+        return training_model, model_code, model_query, dot_model
+
+# snn_dcs_weights
+
+    def test(self, model_code, model_query, dot_model, results_path, code_length, desc_length):
+        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, 100)
+        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, 100) # 10000
+
+        test_tokens = pad(test_tokens, code_length)
+        test_desc = pad(test_desc, desc_length)
+
+        embedding_tokens = [None] * len(test_tokens)
+        print("Embedding tokens...")
+        for idx,token in enumerate(test_tokens):
+
+            embedding_result = model_code(np.array(token).reshape(1,-1))
+            embedding_tokens[idx] = embedding_result.numpy()[0]
+
+        embedding_desc = [None] * len(test_desc)
+        print("Embedding descs...")
+        for idx,desc in enumerate(test_desc):
+
+            embedding_result = model_query(np.array(desc).reshape(1,-1))
+            embedding_desc[idx] = embedding_result.numpy()[0]
+
+        self.test_embedded(dot_model, embedding_tokens, embedding_desc, results_path)
 
 
 
-def training_data_chunk(id, valid_perc, chunk_size):
+    def training_data_chunk(self, id, valid_perc):
 
-    init_trainig = chunk_size * id
-    init_valid = int(chunk_size * id + chunk_size * valid_perc)
-    end_valid = int(chunk_size * id + chunk_size)
+        init_trainig = self.chunk_size * id
+        init_valid = int(self.chunk_size * id + self.chunk_size * valid_perc)
+        end_valid = int(self.chunk_size * id + self.chunk_size)
 
-    return init_trainig, init_valid, end_valid
+        return init_trainig, init_valid, end_valid
 
+
+    def load_dataset(self, data_chunk_id, batch_size):
+
+        init_trainig, init_valid, end_valid = self.training_data_chunk(data_chunk_id, 0.8)
+
+        longer_code, longer_desc, number_code_tokens, number_desc_tokens= snn_dcs.get_dataset_meta_hardcoded()
+
+        training_set_generator = DataGeneratorDCS(self.data_path + "train.tokens.h5", self.data_path + "train.desc.h5",
+                                                  batch_size, init_trainig, init_valid, longer_code, longer_desc)
+        return training_set_generator
 
 if __name__ == "__main__":
-    script_path = str(pathlib.Path(__file__).parent)
 
-    print("UNIF Model")
-
-    # dataset info
-    total_length = 18223872
-    chunk_size = 18223872 #1000000
-
-    number_chunks = total_length/chunk_size - 1
-    number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
+    print("Running SNN Model")
 
     args = sys.argv
     data_chunk_id = 0
     if len(args) > 1:
         data_chunk_id = int(args[1])
 
-    data_chunk_id = min(data_chunk_id, int(number_chunks))
+    script_path = str(pathlib.Path(__file__).parent)
 
-    data_path = script_path+"/../data/deep-code-search/drive/"
+    data_path = script_path + "/../data/deep-code-search/drive/"
 
-    #longer_code, longer_desc, number_code_tokens, number_desc_tokens = get_dataset_meta()
-    longer_code, longer_desc, number_code_tokens, number_desc_tokens = get_dataset_meta_hardcoded()
+    snn_dcs = UNIF_DCS(data_path, data_chunk_id)
+
+    BATCH_SIZE = 32 * 1
+
+    dataset = snn_dcs.load_dataset(0, BATCH_SIZE)
+
+    longer_code, longer_desc, number_code_tokens, number_desc_tokens= snn_dcs.get_dataset_meta_hardcoded()
+
     embedding_size = 2048
 
+    multi_gpu = False
+
     print("Building model and loading weights")
-    strategy = tf.distribute.MirroredStrategy()
-    with strategy.scope():
-        training_model, model_code, model_query, cos_model = generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
+    if multi_gpu:
+        tf.debugging.set_log_device_placement(False)
 
-        load_weights(training_model, script_path+"/../weights")
+        strategy = tf.distribute.MirroredStrategy()
 
-    #init_trainig, init_valid, end_valid = training_data_chunk(data_chunk_id, 0.9, chunk_size)
+        with strategy.scope():
+            training_model, model_code, model_query, dot_model = snn_dcs.generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
+            snn_dcs.load_weights(training_model, script_path+"/../weights/unif_dcs_weights")
+    else:
+        training_model, embedding_model, cos_model, dot_model = snn_dcs.generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
+        snn_dcs.load_weights(training_model, script_path + "/../weights/unif_dcs_weights")
 
-    print("Training model with chunk number ", data_chunk_id, " of ", number_chunks)
+    #snn_dcs.train(training_model, dataset, script_path+"/../weights/snn_dcs_weights")
 
-    #batch_size = 64 * 2
-    #training_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_trainig, init_valid, longer_code, longer_desc)
-    #valid_set_generator = DataGeneratorDCS(data_path + "train.tokens.h5", data_path + "train.desc.h5", batch_size, init_valid, end_valid, longer_code, longer_desc)
+    snn_dcs.test(model_code, model_query, dot_model, script_path+"/../results", longer_code, longer_desc)
 
-    #train(training_model, training_set_generator, valid_set_generator, script_path+"/../weights/unif_dcs_weights", batch_size)
-
-    test(data_path, cos_model, script_path+"/../results", longer_code, longer_desc, data_chunk_id)
 
