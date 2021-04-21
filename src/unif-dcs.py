@@ -192,15 +192,19 @@ if __name__ == "__main__":
 
         with strategy.scope():
             training_model, model_code, model_query, dot_model = unif_dcs.generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
-            unif_dcs.load_weights(training_model, script_path+"/../weights/unif_dcs_weights")
+            #unif_dcs.load_weights(training_model, script_path+"/../weights/unif_dcs_weights")
     else:
         training_model, model_code, model_query, dot_model = unif_dcs.generate_model(embedding_size, number_code_tokens,
                                                                                      number_desc_tokens, longer_code,
                                                                                      longer_desc, 0.05)
-        unif_dcs.load_weights(training_model, script_path + "/../weights/unif_dcs_weights")
+        #unif_dcs.load_weights(training_model, script_path + "/../weights/unif_dcs_weights")
 
     unif_dcs.train(training_model, dataset, script_path+"/../weights/unif_dcs_weights")
 
     unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results", longer_code, longer_desc)
 
+
+    unif_dcs.train(training_model, dataset, script_path+"/../weights/unif_dcs_weights")
+
+    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results", longer_code, longer_desc)
 
