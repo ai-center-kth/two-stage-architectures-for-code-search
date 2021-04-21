@@ -39,7 +39,7 @@ class SBERT_DCS(CodeSearchManager):
         self.number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
 
         self.data_chunk_id = min(data_chunk_id, int(self.number_chunks))
-        print("### Loading SNN model with DCS chunk number " + str(data_chunk_id) + " [0," + str(number_chunks)+"]")
+        print("### Loading SBERT model with DCS chunk number " + str(data_chunk_id) + " [0," + str(number_chunks)+"]")
 
     def get_dataset_meta_hardcoded(self):
         return 86, 410, 10001, 10001
@@ -76,13 +76,7 @@ class SBERT_DCS(CodeSearchManager):
 
         bert_desc_output = bert_layer([input_word_ids_desc, input_mask_desc, segment_ids_desc])
 
-        desc_lstm = tf.keras.layers.Bidirectional(
-            tf.keras.layers.LSTM(64, return_sequences=True)
-        )(bert_desc_output[1])
-
-        desc_mean = tf.reduce_mean(desc_lstm, 1)
-
-        desc_output = tf.keras.layers.Dropout(0.3)(desc_mean)
+        desc_output = tf.reduce_mean(bert_desc_output[1], 1)
 
         input_word_ids_code = tf.keras.layers.Input(shape=(self.max_len,),
                                                     dtype=tf.int32,
@@ -96,15 +90,9 @@ class SBERT_DCS(CodeSearchManager):
 
         bert_code_output = bert_layer([input_word_ids_code, input_mask_code, segment_ids_code])
 
-        code_lstm = tf.keras.layers.Bidirectional(
-            tf.keras.layers.LSTM(64, return_sequences=True)
-        )(bert_code_output[1])
+        code_output = tf.reduce_mean(bert_code_output[1], 1)
 
-        code_mean = tf.reduce_mean(code_lstm, 1)
-
-        code_output = tf.keras.layers.Dropout(0.3)(code_mean)
-
-        preds = tf.keras.layers.Dot(axes=1, normalize=True)([desc_output, code_output])
+        similarity = tf.keras.layers.Dot(axes=1, normalize=True)([desc_output, code_output])
 
         # Used in tests
         embedded_code = tf.keras.Input(shape=(code_output.shape[1],), name="embedded_code")
@@ -116,13 +104,13 @@ class SBERT_DCS(CodeSearchManager):
 
         # output = tf.keras.layers.Dense(1, activation="sigmoid")(dropout)
 
-        training_model = tf.keras.models.Model(
-            inputs=[input_word_ids_desc, input_mask_desc, segment_ids_desc, input_word_ids_code, input_mask_code,
-                    segment_ids_code],
-            outputs=preds
+        cos_model = tf.keras.models.Model(
+            inputs=[input_word_ids_desc, input_mask_desc, segment_ids_desc,
+                    input_word_ids_code, input_mask_code, segment_ids_code],
+            outputs=similarity
         )
 
-        training_model.compile(loss='mse', optimizer='nadam', metrics=['mse'])
+        # cos_model.compile(loss='mse', optimizer='nadam', metrics=['mse'])
 
         embedding_desc_model = tf.keras.models.Model(
             inputs=[input_word_ids_desc, input_mask_desc, segment_ids_desc],
@@ -133,6 +121,47 @@ class SBERT_DCS(CodeSearchManager):
             inputs=[input_word_ids_code, input_mask_code, segment_ids_code],
             outputs=code_output
         )
+
+        good_ids_desc = tf.keras.layers.Input(shape=(self.max_len,),
+                                              dtype=tf.int32)
+        good_mask_desc = tf.keras.layers.Input(shape=(self.max_len,),
+                                               dtype=tf.int32)
+        good_seg_desc = tf.keras.layers.Input(shape=(self.max_len,),
+                                              dtype=tf.int32)
+
+        good_ids_code = tf.keras.layers.Input(shape=(self.max_len,),
+                                              dtype=tf.int32)
+        good_mask_code = tf.keras.layers.Input(shape=(self.max_len,),
+                                               dtype=tf.int32)
+        good_seg_code = tf.keras.layers.Input(shape=(MAX_LEN,),
+                                              dtype=tf.int32)
+
+        bad_ids_code = tf.keras.layers.Input(shape=(self.max_len,),
+                                             dtype=tf.int32)
+        bad_mask_code = tf.keras.layers.Input(shape=(self.max_len,),
+                                              dtype=tf.int32)
+        bad_seg_code = tf.keras.layers.Input(shape=(self.max_len,),
+                                             dtype=tf.int32)
+
+        good_similarity = cos_model(
+            [good_ids_desc, good_mask_desc, good_seg_desc, good_ids_code, good_mask_code, good_seg_code])
+
+        bad_similarity = cos_model(
+            [good_ids_desc, good_mask_desc, good_seg_desc, bad_ids_code, bad_mask_code, bad_seg_code])
+
+        hinge_loss_margin = 0.2
+        loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
+                                      output_shape=lambda x: x[0],
+                                      name='loss')([good_similarity, bad_similarity])
+
+        training_model = tf.keras.Model(inputs=[
+            good_ids_desc, good_mask_desc, good_seg_desc,
+            good_ids_code, good_mask_code, good_seg_code,
+
+            bad_ids_code, bad_mask_code, bad_seg_code], outputs=[loss],
+            name='training_model')
+
+        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
 
         return training_model, embedding_code_model, embedding_desc_model, dot_model
 
@@ -215,6 +244,10 @@ class SBERT_DCS(CodeSearchManager):
         retokenized_mask_code = []
         retokenized_type_code = []
 
+        bad_retokenized_code = []
+        bad_retokenized_mask_code = []
+        bad_retokenized_type_code = []
+
         labels = []
 
         for idx, sentence in enumerate(train_desc):
@@ -229,7 +262,7 @@ class SBERT_DCS(CodeSearchManager):
             code_ = self.tokenize_sentences(code, "")
             neg_ = self.tokenize_sentences(neg_code, "")
 
-            if len(desc_[0]) != self.max_len:
+            if len(desc_[0]) != self.max_len or len(desc_[0]) != self.max_len or len(desc_[0]) != self.max_len:
                 continue
 
             retokenized_desc.append(desc_[0])
@@ -240,30 +273,17 @@ class SBERT_DCS(CodeSearchManager):
             retokenized_mask_code.append(code_[1])
             retokenized_type_code.append(code_[2])
 
-            # tokenized_code.append(code_[0])
+            bad_retokenized_code.append(neg_[0])
+            bad_retokenized_mask_code.append(neg_[1])
+            bad_retokenized_type_code.append(neg_[2])
 
-            labels.append([1])
+            # labels.append([0])
 
-            neg_code_ = self.tokenize_sentences(desc, neg_code)
-            if len(neg_code_[0]) != self.max_len:
-                continue
-
-            retokenized_desc.append(desc_[0])
-            retokenized_mask_desc.append(desc_[1])
-            retokenized_type_desc.append(desc_[2])
-
-            retokenized_code.append(neg_[0])
-            retokenized_mask_code.append(neg_[1])
-            retokenized_type_code.append(neg_[2])
-
-            # tokenized_code.append(neg_code_[0])
-
-            labels.append([0])
-
-        labels = np.array(labels)
+        labels = np.zeros((len(bad_retokenized_code), 1))
 
         return np.array(retokenized_desc), np.array(retokenized_mask_desc), np.array(retokenized_type_desc),\
-               np.array(retokenized_code), np.array(retokenized_mask_code), np.array(retokenized_type_code),labels
+               np.array(retokenized_code), np.array(retokenized_mask_code), np.array(retokenized_type_code),\
+               np.array(bad_retokenized_code), np.array(bad_retokenized_mask_code), np.array(bad_retokenized_type_code),labels
 
     def train(self, trainig_model, training_set, weights_path, epochs=1):
         trainig_model.fit(x=[np.array(training_set[0]),
@@ -273,15 +293,17 @@ class SBERT_DCS(CodeSearchManager):
                      np.array(training_set[3]),
                      np.array(training_set[4]),
                      np.array(training_set[5]),
+
+                     np.array(training_set[6]),
+                     np.array(training_set[7]),
+                     np.array(training_set[8]),
                      ],  # np.array(tokenized_code)
-                  y=training_set[6], epochs=epochs, verbose=1, batch_size=32, validation_split=0.9)
+                  y=training_set[9], epochs=epochs, verbose=1, batch_size=32, validation_split=0.9)
 
         trainig_model.save_weights(weights_path)
         print("Model saved!")
 
 if __name__ == "__main__":
-
-    print("Running SNN Model")
 
     args = sys.argv
     data_chunk_id = 0
@@ -333,14 +355,18 @@ if __name__ == "__main__":
 
         with strategy.scope():
             training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(bert_layer)
-            sbert_dcs.load_weights(training_model, script_path+"/../weights/sbert_dcs_weights")
+            #sbert_dcs.load_weights(training_model, script_path+"/../weights/sbert_dcs_weights")
     else:
         training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(bert_layer)
-        sbert_dcs.load_weights(training_model, script_path + "/../weights/sbert_dcs_weights")
+        #sbert_dcs.load_weights(training_model, script_path + "/../weights/sbert_dcs_weights")
 
-    sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 6)
+
     bert_layer.trainable = True
-    sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 2)
+    sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 1)
+
+    sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results")
+
+    sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 1)
 
     sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results")
 
