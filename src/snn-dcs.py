@@ -21,7 +21,7 @@ class SNN_DCS(CodeSearchManager):
 
         # dataset info
         self.total_length = 18223872
-        self.chunk_size = 10000 // 2  # 18223872  # 10000
+        self.chunk_size = 100000  # 18223872  # 10000
 
 
         number_chunks = self.total_length / self.chunk_size - 1
@@ -175,12 +175,16 @@ if __name__ == "__main__":
         strategy = tf.distribute.MirroredStrategy()
 
         with strategy.scope():
-            training_model, embedding_model, cos_model, dot_model = snn_dcs.generate_model(embedding_size, number_tokens, longer_sentence, 0.05)
-            snn_dcs.load_weights(training_model, script_path+"/../weights/snn_dcs_weights")
+            training_model, embedding_model, cos_model, dot_model = snn_dcs.generate_model(embedding_size, number_tokens, longer_sentence, 0.2)
+            #snn_dcs.load_weights(training_model, script_path+"/../weights/snn_dcs_weights")
     else:
         training_model, embedding_model, cos_model, dot_model = snn_dcs.generate_model(embedding_size, number_tokens,
-                                                                                       longer_sentence, 0.05)
-        snn_dcs.load_weights(training_model, script_path + "/../weights/snn_dcs_weights")
+                                                                                       longer_sentence, 0.2)
+        #snn_dcs.load_weights(training_model, script_path + "/../weights/snn_dcs_weights")
+
+    snn_dcs.train(training_model, dataset, script_path+"/../weights/snn_dcs_weights")
+
+    snn_dcs.test(embedding_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence)
 
     snn_dcs.train(training_model, dataset, script_path+"/../weights/snn_dcs_weights")
 
