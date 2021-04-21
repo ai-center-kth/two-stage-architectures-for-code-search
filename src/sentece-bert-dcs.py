@@ -133,7 +133,7 @@ class SBERT_DCS(CodeSearchManager):
                                               dtype=tf.int32)
         good_mask_code = tf.keras.layers.Input(shape=(self.max_len,),
                                                dtype=tf.int32)
-        good_seg_code = tf.keras.layers.Input(shape=(MAX_LEN,),
+        good_seg_code = tf.keras.layers.Input(shape=(self.max_len,),
                                               dtype=tf.int32)
 
         bad_ids_code = tf.keras.layers.Input(shape=(self.max_len,),
