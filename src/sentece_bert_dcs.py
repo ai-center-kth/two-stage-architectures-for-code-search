@@ -76,7 +76,9 @@ class SBERT_DCS(CodeSearchManager):
 
         bert_desc_output = bert_layer([input_word_ids_desc, input_mask_desc, segment_ids_desc])
 
-        desc_output = tf.reduce_mean(bert_desc_output[1], 1)
+        attention_desc = tf.keras.layers.Attention(name="attention_desc")([bert_desc_output[1], bert_desc_output[1]])
+
+        desc_output = tf.reduce_mean(attention_desc, 1)
 
         input_word_ids_code = tf.keras.layers.Input(shape=(self.max_len,),
                                                     dtype=tf.int32,
@@ -90,7 +92,9 @@ class SBERT_DCS(CodeSearchManager):
 
         bert_code_output = bert_layer([input_word_ids_code, input_mask_code, segment_ids_code])
 
-        code_output = tf.reduce_mean(bert_code_output[1], 1)
+        attention_code = tf.keras.layers.Attention(name="attention_desc")([bert_code_output[1], bert_code_output[1]])
+
+        code_output = tf.reduce_mean(attention_code, 1)
 
         similarity = tf.keras.layers.Dot(axes=1, normalize=True)([desc_output, code_output])
 
