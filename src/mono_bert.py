@@ -9,7 +9,12 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", "bert-tensorflow=
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tf-hub-nightly"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+
 import pathlib
+
 import tensorflow as tf
 import tensorflow_hub as hub
 from bert.tokenization import FullTokenizer
@@ -26,7 +31,6 @@ class MONOBERT_DCS(CodeSearchManager):
         self.data_path = data_path
         self.tokenizer = None
         self.max_len = 90
-        self.tokenizer = None
         print("Loading monoBERT model")
 
     def generate_model(self, bert_layer):
