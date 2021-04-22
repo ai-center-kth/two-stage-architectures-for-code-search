@@ -7,7 +7,7 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 
 subprocess.check_call([sys.executable, "-m", "pip", "install", "bert-tensorflow==1.0.1"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tf-hub-nightly"])
-
+subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 import pathlib
 import tensorflow as tf
@@ -27,6 +27,7 @@ class MONOBERT_DCS(CodeSearchManager):
         self.tokenizer = None
         self.max_len = 90
         self.tokenizer = None
+        print("Loading monoBERT model")
 
     def generate_model(self, bert_layer):
         # The model
