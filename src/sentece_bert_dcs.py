@@ -233,7 +233,7 @@ class SBERT_DCS(CodeSearchManager):
         type_ids = [0] + [0] * len(input1_encoded) + [1] * len(input2_encoded) + [0] * (
                     (self.max_len) - (1 + len(input1_encoded) + len(input2_encoded)))
 
-        return concated_ids, masks, type_ids
+        return concated_ids[:self.max_len], masks[:self.max_len], type_ids[:self.max_len]
 
     def load_dataset(self, train_desc, train_tokens, vocab_desc, vocab_tokens):
 
@@ -287,17 +287,17 @@ class SBERT_DCS(CodeSearchManager):
                np.array(bad_retokenized_code), np.array(bad_retokenized_mask_code), np.array(bad_retokenized_type_code),labels
 
     def train(self, trainig_model, training_set, weights_path, epochs=1):
-        trainig_model.fit(x=[np.array(training_set[0]),
-                     np.array(training_set[1]),
-                     np.array(training_set[2]),
+        trainig_model.fit(x=[(training_set[0]),
+                     (training_set[1]),
+                     (training_set[2]),
 
-                     np.array(training_set[3]),
-                     np.array(training_set[4]),
-                     np.array(training_set[5]),
+                     (training_set[3]),
+                     (training_set[4]),
+                     (training_set[5]),
 
-                     np.array(training_set[6]),
-                     np.array(training_set[7]),
-                     np.array(training_set[8]),
+                     (training_set[6]),
+                     (training_set[7]),
+                     (training_set[8]),
                      ],  # np.array(tokenized_code)
                   y=training_set[9], epochs=epochs, verbose=1, batch_size=32)
 
@@ -335,8 +335,8 @@ if __name__ == "__main__":
     file_format = "h5"
 
     # 18223872 (len) #1000000
-    train_tokens = load_hdf5(data_path + "train.tokens." + file_format, 0, 100000)  # 1000000
-    train_desc = load_hdf5(data_path + "train.desc." + file_format, 0, 100000)
+    train_tokens = load_hdf5(data_path + "train.tokens." + file_format, 0, 500000)  # 1000000
+    train_desc = load_hdf5(data_path + "train.desc." + file_format, 0, 500000)
 
     vocabulary_tokens = load_pickle(data_path + "vocab.tokens.pkl")
     vocab_tokens = {y: x for x, y in vocabulary_tokens.items()}
