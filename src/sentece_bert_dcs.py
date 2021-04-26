@@ -7,7 +7,7 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "bert-tensorflow==1.0.1"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tf-hub-nightly"])
 
-
+subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
@@ -20,6 +20,7 @@ from dcs_data_generator import DataGeneratorDCS
 import random
 from help import *
 from code_search_manager import CodeSearchManager
+import transformers
 from bert.tokenization import FullTokenizer
 
 class SBERT_DCS(CodeSearchManager):
@@ -77,7 +78,7 @@ class SBERT_DCS(CodeSearchManager):
         bert_desc_output = bert_layer([input_word_ids_desc, input_mask_desc, segment_ids_desc])
 
 
-        desc_output = tf.reduce_mean(bert_desc_output[1], 1)
+        desc_output = tf.reduce_mean(bert_desc_output[0], 1)
 
         input_word_ids_code = tf.keras.layers.Input(shape=(self.max_len,),
                                                     dtype=tf.int32,
@@ -91,7 +92,7 @@ class SBERT_DCS(CodeSearchManager):
 
         bert_code_output = bert_layer([input_word_ids_code, input_mask_code, segment_ids_code])
 
-        code_output = tf.reduce_mean(bert_code_output[1], 1)
+        code_output = tf.reduce_mean(bert_code_output[0], 1)
 
         similarity = tf.keras.layers.Dot(axes=1, normalize=True)([desc_output, code_output])
 
@@ -223,17 +224,29 @@ class SBERT_DCS(CodeSearchManager):
         return self.tokenizer.convert_tokens_to_ids(tokens)
 
     def tokenize_sentences(self, input1_str, input2_str):
-        input1_encoded = self.encode_sentence(input1_str)
-        input2_encoded = self.encode_sentence(input2_str)
-        cls_ = self.tokenizer.convert_tokens_to_ids(['[CLS]'])
-        concated = cls_ + input1_encoded + input2_encoded
-        concated_ids = concated + [0] * ((self.max_len) - len(concated))
+        #input1_encoded = self.encode_sentence(input1_str)
+        #input2_encoded = self.encode_sentence(input2_str)
+        #cls_ = self.tokenizer.convert_tokens_to_ids(['[CLS]'])
+        #concated = cls_ + input1_encoded + input2_encoded
+        #concated_ids = concated + [0] * ((self.max_len) - len(concated))
 
-        masks = [1] * len(concated) + [0] * ((self.max_len) - len(concated))
-        type_ids = [0] + [0] * len(input1_encoded) + [1] * len(input2_encoded) + [0] * (
-                    (self.max_len) - (1 + len(input1_encoded) + len(input2_encoded)))
+        #masks = [1] * len(concated) + [0] * ((self.max_len) - len(concated))
+        #type_ids = [0] + [0] * len(input1_encoded) + [1] * len(input2_encoded) + [0] * (
+        #            (self.max_len) - (1 + len(input1_encoded) + len(input2_encoded)))
 
-        return concated_ids[:self.max_len], masks[:self.max_len], type_ids[:self.max_len]
+        #return concated_ids[:self.max_len], masks[:self.max_len], type_ids[:self.max_len]
+        # return concated_ids, masks, type_ids
+        tokenized = self.tokenizer.batch_encode_plus(
+            [[input1_str, input2_str]],
+            add_special_tokens=True,
+            max_length=90,
+            return_attention_mask=True,
+            return_token_type_ids=True,
+            pad_to_max_length=True,
+            return_tensors="np",
+        )
+
+        return tokenized["input_ids"][0], tokenized["attention_mask"][0], tokenized["token_type_ids"][0]
 
     def load_dataset(self, train_desc, train_tokens, vocab_desc, vocab_tokens):
 
@@ -319,24 +332,44 @@ if __name__ == "__main__":
 
     BATCH_SIZE = 32 * 1
 
-    bert_layer = hub.KerasLayer("https://tfhub.dev/tensorflow/bert_en_uncased_L-12_H-768_A-12/1",
-                                trainable=False)
+    #bert_layer = hub.KerasLayer("https://tfhub.dev/tensorflow/bert_en_uncased_L-12_H-768_A-12/1",
+    #                            trainable=False)
     # Some verion incompatibility requires this line
-    tf.gfile = tf.io.gfile
+    #tf.gfile = tf.io.gfile
 
     # Get bert tokenizer
-    bert_layer.resolved_object.vocab_file.asset_path.numpy()
-    vocab_file = bert_layer.resolved_object.vocab_file.asset_path.numpy()
-    do_lower_case = bert_layer.resolved_object.do_lower_case.numpy()
-    tokenizer = FullTokenizer(vocab_file, do_lower_case)
+    #bert_layer.resolved_object.vocab_file.asset_path.numpy()
+    #vocab_file = bert_layer.resolved_object.vocab_file.asset_path.numpy()
+    #do_lower_case = bert_layer.resolved_object.do_lower_case.numpy()
+    #tokenizer = FullTokenizer(vocab_file, do_lower_case)
+    #sbert_dcs.tokenizer = tokenizer
 
-    sbert_dcs.tokenizer = tokenizer
+    multi_gpu = True
+
+    print("Building model and loading weights")
+    if multi_gpu:
+        tf.debugging.set_log_device_placement(False)
+
+        strategy = tf.distribute.MirroredStrategy()
+
+        with strategy.scope():
+            bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
+            training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(bert_layer)
+            #sbert_dcs.load_weights(training_model, script_path+"/../weights/sbert_dcs_weights")
+    else:
+        bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
+        training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(bert_layer)
+        #sbert_dcs.load_weights(training_model, script_path + "/../weights/sbert_dcs_weights")
+
+    sbert_dcs.tokenizer = transformers.BertTokenizer.from_pretrained(
+        "bert-base-uncased", do_lower_case=True
+    )
 
     file_format = "h5"
 
     # 18223872 (len) #1000000
-    train_tokens = load_hdf5(data_path + "train.tokens." + file_format, 0, 500000)  # 1000000
-    train_desc = load_hdf5(data_path + "train.desc." + file_format, 0, 500000)
+    train_tokens = load_hdf5(data_path + "train.tokens." + file_format, 0, 100000)  # 1000000
+    train_desc = load_hdf5(data_path + "train.desc." + file_format, 0, 100000)
 
     vocabulary_tokens = load_pickle(data_path + "vocab.tokens.pkl")
     vocab_tokens = {y: x for x, y in vocabulary_tokens.items()}
@@ -346,26 +379,15 @@ if __name__ == "__main__":
 
     dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
 
-    multi_gpu = False
-
-    print("Building model and loading weights")
-    if multi_gpu:
-        tf.debugging.set_log_device_placement(False)
-
-        strategy = tf.distribute.MirroredStrategy()
-
-        with strategy.scope():
-            training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(bert_layer)
-            #sbert_dcs.load_weights(training_model, script_path+"/../weights/sbert_dcs_weights")
-    else:
-        training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(bert_layer)
-        #sbert_dcs.load_weights(training_model, script_path + "/../weights/sbert_dcs_weights")
 
 
-    bert_layer.trainable = True
+    bert_layer.trainable = False
+
     sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 1)
 
     sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results")
+
+    bert_layer.trainable = True
 
     sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 1)
 
