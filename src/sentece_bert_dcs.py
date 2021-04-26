@@ -76,9 +76,8 @@ class SBERT_DCS(CodeSearchManager):
 
         bert_desc_output = bert_layer([input_word_ids_desc, input_mask_desc, segment_ids_desc])
 
-        attention_desc = tf.keras.layers.Attention(name="attention_desc")([bert_desc_output[1], bert_desc_output[1]])
 
-        desc_output = tf.reduce_mean(attention_desc, 1)
+        desc_output = tf.reduce_mean(bert_desc_output[1], 1)
 
         input_word_ids_code = tf.keras.layers.Input(shape=(self.max_len,),
                                                     dtype=tf.int32,
@@ -92,9 +91,7 @@ class SBERT_DCS(CodeSearchManager):
 
         bert_code_output = bert_layer([input_word_ids_code, input_mask_code, segment_ids_code])
 
-        attention_code = tf.keras.layers.Attention(name="attention_desc")([bert_code_output[1], bert_code_output[1]])
-
-        code_output = tf.reduce_mean(attention_code, 1)
+        code_output = tf.reduce_mean(bert_code_output[1], 1)
 
         similarity = tf.keras.layers.Dot(axes=1, normalize=True)([desc_output, code_output])
 
@@ -221,14 +218,14 @@ class SBERT_DCS(CodeSearchManager):
     def encode_sentence(self, s):
         if s == "":
             return []
-        tokens = list(tokenizer.tokenize(s))
+        tokens = list(self.tokenizer.tokenize(s))
         tokens.append('[SEP]')
-        return tokenizer.convert_tokens_to_ids(tokens)
+        return self.tokenizer.convert_tokens_to_ids(tokens)
 
     def tokenize_sentences(self, input1_str, input2_str):
         input1_encoded = self.encode_sentence(input1_str)
         input2_encoded = self.encode_sentence(input2_str)
-        cls_ = tokenizer.convert_tokens_to_ids(['[CLS]'])
+        cls_ = self.tokenizer.convert_tokens_to_ids(['[CLS]'])
         concated = cls_ + input1_encoded + input2_encoded
         concated_ids = concated + [0] * ((self.max_len) - len(concated))
 
@@ -302,7 +299,7 @@ class SBERT_DCS(CodeSearchManager):
                      np.array(training_set[7]),
                      np.array(training_set[8]),
                      ],  # np.array(tokenized_code)
-                  y=training_set[9], epochs=epochs, verbose=1, batch_size=32, validation_split=0.9)
+                  y=training_set[9], epochs=epochs, verbose=1, batch_size=32)
 
         trainig_model.save_weights(weights_path)
         print("Model saved!")
@@ -373,5 +370,4 @@ if __name__ == "__main__":
     sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 1)
 
     sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results")
-
 

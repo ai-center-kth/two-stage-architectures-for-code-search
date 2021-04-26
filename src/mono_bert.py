@@ -17,7 +17,6 @@ import pathlib
 
 import tensorflow as tf
 import tensorflow_hub as hub
-from bert.tokenization import FullTokenizer
 
 from code_search_manager import CodeSearchManager
 import numpy as np
@@ -33,7 +32,34 @@ class MONOBERT_DCS(CodeSearchManager):
         self.max_len = 90
         print("Loading monoBERT model")
 
+    def generate_model(self, bert_layer):
+        # The model
 
+        input_word_ids = tf.keras.layers.Input(shape=(self.max_len,),
+                                               dtype=tf.int32,
+                                               name="input_word_ids")
+        input_mask = tf.keras.layers.Input(shape=(self.max_len,),
+                                           dtype=tf.int32,
+                                           name="input_mask")
+        segment_ids = tf.keras.layers.Input(shape=(self.max_len,),
+                                            dtype=tf.int32,
+                                            name="segment_ids")
+
+        bert_output = bert_layer([input_word_ids, input_mask, segment_ids])
+
+        output = tf.keras.layers.Dense(1, activation="sigmoid")(bert_output[1])
+
+        model = tf.keras.models.Model(
+            inputs=[input_word_ids, input_mask, segment_ids], outputs=output
+        )
+
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(),
+            loss="binary_crossentropy",
+            metrics=["acc"],
+        )
+
+        return model
 
 def get_top_n(n, results):
     count = 0
@@ -110,34 +136,7 @@ def test(data_path):
     print(top_15)
 
 
-def generate_model(bert_layer):
-    # The model
 
-    input_word_ids = tf.keras.layers.Input(shape=(MAX_LEN,),
-                                           dtype=tf.int32,
-                                           name="input_word_ids")
-    input_mask = tf.keras.layers.Input(shape=(MAX_LEN,),
-                                       dtype=tf.int32,
-                                       name="input_mask")
-    segment_ids = tf.keras.layers.Input(shape=(MAX_LEN,),
-                                        dtype=tf.int32,
-                                        name="segment_ids")
-
-    bert_output = bert_layer([input_word_ids, input_mask, segment_ids])
-
-    output = tf.keras.layers.Dense(1, activation="sigmoid")(bert_output[1])
-
-    model = tf.keras.models.Model(
-        inputs=[input_word_ids, input_mask, segment_ids], outputs=output
-    )
-
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(),
-        loss="binary_crossentropy",
-        metrics=["acc"],
-    )
-
-    return model
 
 def tokenize_sentences(input1_str, input2_str):
     # return concated_ids, masks, type_ids
