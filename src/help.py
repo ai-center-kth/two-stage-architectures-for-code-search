@@ -36,4 +36,13 @@ def pad(data, len=None):
 
 
 def load_pickle(filename):
-    return pickle.load(open(filename, 'rb'))
+    file = open(filename, 'rb')
+    element = pickle.load(file)
+    file.close()
+    return element
+
+
+def save_pickle(filename, element):
+    a_file = open(filename, "wb")
+    pickle.dump(element, a_file)
+    a_file.close()

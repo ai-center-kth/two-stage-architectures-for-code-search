@@ -1,7 +1,13 @@
 
+import subprocess
+import sys
+
+subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
+subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
+subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 import os.path
 import time
 import pathlib
@@ -41,7 +47,7 @@ def generate_model(embedding_size, number_code_tokens, number_desc_tokens, code_
 
     # Cosine similarity
     # If normalize set to True, then the output of the dot product is the cosine proximity between the two samples.
-    cos_sim = tf.keras.layers.Dot(axes=1, normalize=True, name='cos_sim')([code_output, query_output])
+    cos_sim = dot_model([code_output, query_output])
 
     # This model calculates cosine similarity between code and query pairs
     cos_model = tf.keras.Model(inputs=[code_input, query_input], outputs=[cos_sim], name='sim_model')
@@ -61,7 +67,6 @@ def generate_model(embedding_size, number_code_tokens, number_desc_tokens, code_
     good_desc_output = cos_model([code_input, good_desc_input])
     bad_desc_output = cos_model([code_input, bad_desc_input])
 
-    margin = 0.5
     loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]), output_shape=lambda x: x[0],
                                   name='loss')([good_desc_output, bad_desc_output])
 
@@ -88,9 +93,11 @@ def train(trainig_model, training_set_generator, weights_path, steps_per_epoch )
 
 
 def test(dataset, code_model, desc_model, dot_model, results_path):
+
     print("Testing model...")
+    print(code_model)
     # Hardcoded
-    dataset_size = 10000 # 22176
+    dataset_size = 100 # 22176
 
     code_test_ds_np = iter(dataset.batch(dataset_size)).get_next()[0][0].numpy()
     code_test_ds_np = code_test_ds_np.reshape((dataset_size,-1))
@@ -104,8 +111,10 @@ def test(dataset, code_model, desc_model, dot_model, results_path):
     print("Embedding code and descriptions...")
     pbar = tqdm(total=dataset_size)
     for i in range(0,dataset_size):
-        code_embeddings.append(code_model(code_test_ds_np[i].reshape(1, -1)).numpy()[0])
-        desc_embeddings.append(desc_model(desc_test_ds_np[i].reshape(1, -1)).numpy()[0])
+
+        code_embeddings.append(code_model.predict(code_test_ds_np[i].reshape(1, -1))[0])
+        desc_embeddings.append(desc_model.predict(desc_test_ds_np[i].reshape(1, -1))[0])
+
         pbar.update(1)
     pbar.close()
 
@@ -120,7 +129,7 @@ def test(dataset, code_model, desc_model, dot_model, results_path):
 
         tiled_desc = np.tile(desc, (deleted_tokens.shape[0], 1))
 
-        prediction = dot_model.predict([deleted_tokens, tiled_desc], batch_size=32*4)
+        prediction = dot_model.predict([deleted_tokens, tiled_desc]) # , batch_size=32*4
 
         results[rowid] = len(prediction[prediction > expected_best_result])
 
@@ -130,6 +139,7 @@ def test(dataset, code_model, desc_model, dot_model, results_path):
     top_1 = get_top_n(1, results)
     top_3 = get_top_n(3, results)
     top_5 = get_top_n(5, results)
+    print(results)
 
     print(top_1)
     print(top_3)
@@ -162,7 +172,7 @@ if __name__ == "__main__":
 
     tfr_files = [x.__str__() for x in tfr_files]
 
-    BATCH_SIZE = 32
+    BATCH_SIZE = 1 #64
     dataset = TFRecordParser.generate_dataset(tfr_files, BATCH_SIZE)
 
     number_code_tokens = 30522
@@ -170,35 +180,27 @@ if __name__ == "__main__":
 
     longer_code = 45
     longer_desc = 45
-    embedding_size = 2048
+    embedding_size = 2048 # 16384 #
 
     print("Building model and loading weights")
     strategy = tf.distribute.MirroredStrategy()
 
-    multi_gpu = True
+    multi_gpu = False
 
-    if multi_gpu:
-        with strategy.scope():
-            training_model, model_code, model_query, cos_model, dot_model = generate_model(embedding_size,
-                                                                                           number_code_tokens,
-                                                                                           number_desc_tokens,
-                                                                                           longer_code,
-                                                                                           longer_desc, 0.05)
-            load_weights(training_model, script_path+"/../weights")
-    else:
-        training_model, model_code, model_query, cos_model, dot_model = generate_model(embedding_size,
-                                                                                       number_code_tokens,
-                                                                                       number_desc_tokens, longer_code,
-                                                                                       longer_desc, 0.05)
-        load_weights(training_model, script_path + "/../weights")
+
+    training_model, model_code, model_query, cos_model, dot_model = generate_model(embedding_size,
+                                                                                   number_code_tokens,
+                                                                                   number_desc_tokens, longer_code,
+                                                                                   longer_desc, 0.05)
+    load_weights(training_model, script_path + "/../weights")
 
     num_elements = 420000
     steps_per_epoch = num_elements // BATCH_SIZE
 
-    train(training_model, dataset, script_path + "/../weights/unif_csc_weights", steps_per_epoch)
+    #train(training_model, dataset, script_path + "/../weights/unif_csc_weights", steps_per_epoch)
 
     test_files = sorted(Path(target_path + 'python/test/').glob('**/*.tfrecordtest'))
     test_files = [x.__str__() for x in test_files]
     test_dataset = TFRecordParser.generate_dataset(tfr_files, 1)
 
-    test(test_dataset, model_code, model_query, dot_model, script_path+"/../results")
+    test(dataset, model_code, model_query, dot_model, script_path+"/../results")

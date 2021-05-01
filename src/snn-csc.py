@@ -164,7 +164,7 @@ if __name__ == "__main__":
 
     target_path = script_path+"../data/codesearchnet/tfrecord/"
 
-    tfr_files = sorted(Path(target_path + 'python/train/').glob('**/*.tfrecordtest'))
+    tfr_files = sorted(Path(target_path + 'python/train/').glob('**/*.tfrecord'))
 
     tfr_files = [x.__str__() for x in tfr_files]
 
@@ -176,7 +176,7 @@ if __name__ == "__main__":
 
     longer_code = 90
     longer_desc = 90
-    embedding_size = 16384 
+    embedding_size = 16384
 
     print("Building model and loading weights")
     strategy = tf.distribute.MirroredStrategy()

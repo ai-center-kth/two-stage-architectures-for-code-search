@@ -2,12 +2,12 @@
 import subprocess
 import sys
 
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 
-subprocess.check_call([sys.executable, "-m", "pip", "install", "bert-tensorflow==1.0.1"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tf-hub-nightly"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "bert-tensorflow==1.0.1"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tf-hub-nightly"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 
 import pathlib
@@ -179,25 +179,23 @@ if __name__ == "__main__":
 
 
         # SBERT+BERT
+        # array with same length of code, but only with this description
         tiled_desc = np.tile(desc, (embedded_tokens.shape[0], 1))
 
+        # for this description, get the similarity with all the code snippets
         prediction = dot_model.predict([embedded_tokens, tiled_desc], batch_size=32 * 4)
 
-        tiled_desc = np.tile(desc, (len(embedded_tokens), 1))
-        prediction = dot_model.predict([np.array(embedded_tokens), tiled_desc], batch_size=32 * 4)
         prediction = prediction.reshape((-1))
 
         N = 15
         # get ids sorted by prediction value
         predictions_ordered = prediction.argsort()[::-1]
-        topN = predictions_ordered[-N:]
+        topN = predictions_ordered[:N]
 
         if not rowid in topN:
-            position = np.where(predictions_ordered == rowid)[0][0]
-            results_extended[rowid] = position
+            results_extended[rowid] = np.where(predictions_ordered == rowid)[0][0]
         else:
-            owo = get_monobert_score_candidates(rowid, topN)
-            results_extended[rowid] = owo
+            results_extended[rowid] = get_monobert_score_candidates(rowid, topN)
 
 
         pbar.update(1)
@@ -233,3 +231,9 @@ if __name__ == "__main__":
     print(top_3)
     print(top_5)
     print(top_15)
+
+    save_pickle(script_path + "/../results/sb-mb.pkl", results_extended)
+    save_pickle(script_path + "/../results/sb.pkl", results)
+
+    results_extended = load_pickle(script_path + "/../results/sb-mb.pkl")
+    results = load_pickle(script_path + "/../results/sb.pkl")

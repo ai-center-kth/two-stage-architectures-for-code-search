@@ -5,21 +5,17 @@ import sys
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 
-subprocess.check_call([sys.executable, "-m", "pip", "install", "bert-tensorflow==1.0.1"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tf-hub-nightly"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
 import pathlib
 
 import tensorflow as tf
-import tensorflow_hub as hub
 
 from code_search_manager import CodeSearchManager
-import numpy as np
 from help import *
 import random
 import transformers
@@ -202,10 +198,10 @@ if __name__ == "__main__":
     file_format = "h5"
 
     # 18223872 (len) #1000000
-    train_tokens = load_hdf5( data_path+"train.tokens."+file_format, 0, 10000) # 1000000
-    train_desc = load_hdf5( data_path+"train.desc."+file_format, 0, 10000)
+    train_tokens = load_hdf5( data_path+"train.tokens."+file_format, 0, 50000) # 1000000
+    train_desc = load_hdf5( data_path+"train.desc."+file_format, 0, 50000)
     # Negative sampling
-    train_bad_desc = load_hdf5( data_path+"train.desc."+file_format, 0, 10000)
+    train_bad_desc = load_hdf5( data_path+"train.desc."+file_format, 0, 50000)
     random.shuffle(train_bad_desc)
 
     vocabulary_tokens = load_pickle(data_path+"vocab.tokens.pkl")
@@ -235,33 +231,40 @@ if __name__ == "__main__":
     MAX_LEN = 90
 
 
-    bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
-    # Freeze the BERT model to reuse the pretrained features without modifying them.
+    bert_layer = transformers.TFRobertaModel.from_pretrained('roberta-base')
+    #bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
+
     bert_layer.trainable = False
-    # bert_layer = bert_model(input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids)
+
     model = monobert.generate_model(bert_layer)
+    #model.load_weights(script_path+"/../weights/monobert_dcs_weights")
 
-
-    tokenizer = transformers.BertTokenizer.from_pretrained(
-                "bert-base-uncased", do_lower_case=True
-            )
+    #tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-uncased", do_lower_case=True)
+    tokenizer = transformers.RobertaTokenizer.from_pretrained('roberta-base', do_lower_case=True)
 
     retokenized_desc, retokenized_mask, retokenizedtype, labels = generate_dataset()
 
     labels = np.array(labels)
 
+    print("Pre test")
+    test(data_path)
+
     model.fit(x=[np.array(retokenized_desc),
                  np.array(retokenized_mask),
                  np.array(retokenizedtype)],
-              y=labels, epochs=4, verbose=1, batch_size=15)
+              y=labels, epochs=9, verbose=1, batch_size=32)
 
+    print("First test")
+    test(data_path)
     bert_layer.trainable = True
 
     model.fit(x=[np.array(retokenized_desc),
                  np.array(retokenized_mask),
                  np.array(retokenizedtype)],
-              y=labels, epochs=2, verbose=1, batch_size=15)
+              y=labels, epochs=9, verbose=1, batch_size=32)
 
-    model.save_weights(script_path+"/../weights/monobert_dcs_weights")
+    print("Second test")
+    test(data_path)
+    #model.save_weights(script_path+"/../weights/monobert_dcs_weights")
 
     test(data_path)

@@ -56,12 +56,14 @@ class CodeSearchManager():
         top_1 = self.get_top_n(1, results)
         top_3 = self.get_top_n(3, results)
         top_5 = self.get_top_n(5, results)
+        top_15 = self.get_top_n(15, results)
 
         print(top_1)
         print(top_3)
         print(top_5)
+        print(top_15)
 
-        name = results_path + "/results-snnbert-dcs-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
+        name = results_path + time.strftime("%Y%m%d-%H%M%S") + ".csv"
 
         f = open(name, "a")
 

@@ -1,8 +1,11 @@
 import subprocess
 import sys
 
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
+
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "bert-tensorflow==1.0.1"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tf-hub-nightly"])
 
 #subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
@@ -14,6 +17,7 @@ from tensorflow.keras import backend as K
 import pathlib
 import random
 from help import *
+from sentence_bert_dcs_generator import DataGeneratorDCSBERT
 from code_search_manager import CodeSearchManager
 import transformers
 
@@ -34,7 +38,7 @@ class SBERT_DCS(CodeSearchManager):
         self.number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
 
         self.data_chunk_id = min(data_chunk_id, int(self.number_chunks))
-        print("### Loading SBERT model with DCS chunk number " + str(data_chunk_id) + " [0," + str(number_chunks)+"]")
+        print("### Loading SRoBERTa model with DCS chunk number " + str(data_chunk_id) + " [0," + str(number_chunks)+"]")
 
     def get_dataset_meta_hardcoded(self):
         return 86, 410, 10001, 10001
@@ -57,10 +61,7 @@ class SBERT_DCS(CodeSearchManager):
         return longer_sentence, number_tokens
 
 
-    def generate_model(self, desc_bert_layer, code_bert_layer=None):
-
-        if code_bert_layer is None:
-            code_bert_layer = desc_bert_layer
+    def generate_model(self, bert_layer):
 
         input_word_ids_desc = tf.keras.layers.Input(shape=(self.max_len,),
                                                     dtype=tf.int32,
@@ -72,7 +73,7 @@ class SBERT_DCS(CodeSearchManager):
                                                  dtype=tf.int32,
                                                  name="segment_ids_desc")
 
-        bert_desc_output = desc_bert_layer([input_word_ids_desc, input_mask_desc, segment_ids_desc])
+        bert_desc_output = bert_layer([input_word_ids_desc, input_mask_desc, segment_ids_desc])
 
 
         desc_output = tf.reduce_mean(bert_desc_output[0], 1)
@@ -87,7 +88,7 @@ class SBERT_DCS(CodeSearchManager):
                                                  dtype=tf.int32,
                                                  name="segment_ids_code")
 
-        bert_code_output = code_bert_layer([input_word_ids_code, input_mask_code, segment_ids_code])
+        bert_code_output = bert_layer([input_word_ids_code, input_mask_code, segment_ids_code])
 
         code_output = tf.reduce_mean(bert_code_output[0], 1)
 
@@ -296,21 +297,8 @@ class SBERT_DCS(CodeSearchManager):
                np.array(retokenized_code), np.array(retokenized_mask_code), np.array(retokenized_type_code),\
                np.array(bad_retokenized_code), np.array(bad_retokenized_mask_code), np.array(bad_retokenized_type_code),labels
 
-    def train(self, trainig_model, training_set, weights_path, epochs=1):
-        trainig_model.fit(x=[(training_set[0]),
-                     (training_set[1]),
-                     (training_set[2]),
-
-                     (training_set[3]),
-                     (training_set[4]),
-                     (training_set[5]),
-
-                     (training_set[6]),
-                     (training_set[7]),
-                     (training_set[8]),
-                     ],  # np.array(tokenized_code)
-                  y=training_set[9], epochs=epochs, verbose=1, batch_size=16)
-
+    def train(self, trainig_model, training_set, weights_path, epochs=1, batch_size=None):
+        trainig_model.fit(training_set, epochs=epochs, verbose=1, batch_size=batch_size)
         trainig_model.save_weights(weights_path)
         print("Model saved!")
 
@@ -341,7 +329,7 @@ if __name__ == "__main__":
     #tokenizer = FullTokenizer(vocab_file, do_lower_case)
     #sbert_dcs.tokenizer = tokenizer
 
-    multi_gpu = True
+    multi_gpu = False
 
     print("Building model and loading weights")
     if multi_gpu:
@@ -350,25 +338,28 @@ if __name__ == "__main__":
         strategy = tf.distribute.MirroredStrategy()
 
         with strategy.scope():
-            desc_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
-            code_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
-            training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(desc_bert_layer, code_bert_layer)
+            #bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
+            bert_layer = transformers.TFRobertaModel.from_pretrained('roberta-base')
+
+            training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(bert_layer)
+            sbert_dcs.load_weights(training_model, script_path+"/../weights/sroberta_dcs_weights")
             #sbert_dcs.load_weights(training_model, script_path+"/../weights/sbert_dcs_weights")
     else:
-        desc_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
-        code_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
-        training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(desc_bert_layer, code_bert_layer)
+        #bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
+        bert_layer = transformers.TFRobertaModel.from_pretrained('roberta-base')
+        training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(bert_layer)
+        sbert_dcs.load_weights(training_model, script_path+"/../weights/sroberta_dcs_weights")
         #sbert_dcs.load_weights(training_model, script_path + "/../weights/sbert_dcs_weights")
 
-    sbert_dcs.tokenizer = transformers.BertTokenizer.from_pretrained(
-        "bert-base-uncased", do_lower_case=True
-    )
+    #sbert_dcs.tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-uncased", do_lower_case=True)
+    sbert_dcs.tokenizer = tokenizer = transformers.RobertaTokenizer.from_pretrained('roberta-base', do_lower_case=True)
+
 
     file_format = "h5"
 
     # 18223872 (len) #1000000
-    train_tokens = load_hdf5(data_path + "train.tokens." + file_format, 0, 50000)  # 1000000
-    train_desc = load_hdf5(data_path + "train.desc." + file_format, 0, 50000)
+    #train_tokens = load_hdf5(data_path + "train.tokens." + file_format, 0, 18223872)  # 1000000
+    #train_desc = load_hdf5(data_path + "train.desc." + file_format, 0, 18223872)
 
     vocabulary_tokens = load_pickle(data_path + "vocab.tokens.pkl")
     vocab_tokens = {y: x for x, y in vocabulary_tokens.items()}
@@ -376,12 +367,16 @@ if __name__ == "__main__":
     vocabulary_desc = load_pickle(data_path + "vocab.desc.pkl")
     vocab_desc = {y: x for x, y in vocabulary_desc.items()}
 
-    dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
 
-    desc_bert_layer.trainable = False
-    code_bert_layer.trainable = False
 
-    sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 1)
+    dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
+                                   16, 0, 100000, 90, tokenizer, vocab_tokens, vocab_desc)
+
+    #dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
+
+    bert_layer.trainable = False
+
+    sbert_dcs.train(training_model, dataset, script_path+"/../weights/sroberta_dcs_weights", 1)
 
     sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results")
 

@@ -20,6 +20,15 @@ class TFRecordParser():
     def __init__(self):
         pass
 
+
+    # Code kindly borrowed by CodeBer repository https://github.com/microsoft/CodeBERT/blob/master/CodeBERT/codesearch/process_data.py
+    @staticmethod
+    def format_str(string):
+        for char in ['\r\n', '\r', '\n']:
+            string = string.replace(char, ' ')
+        return string
+
+
     @staticmethod
     def to_tfrecord_features(tokenized_code, tokenized_doc, tokenized_negative, similarity):
 
@@ -58,16 +67,17 @@ class TFRecordParser():
                 line_a = json.loads(str(d, encoding='utf-8'))
 
                 docstring_tokens = " ".join(line_a["docstring_tokens"])
-                code_tokens = " ".join(line_a["code_tokens"])
+                #code_tokens = " ".join(line_a["code_tokens"])
+                code_tokens = ' '.join([TFRecordParser.format_str(token) for token in line_a['code_tokens']])
 
-                tokenized_doc = TFRecordParser.tokenize(docstring_tokens)
-                tokenized_code = TFRecordParser.tokenize(code_tokens)
+                tokenized_doc, doc_segment_id = TFRecordParser.tokenize(docstring_tokens)
+                tokenized_code, code_segment_id  = TFRecordParser.tokenize(code_tokens)
 
                 # Negative sampling
                 ramdom_example = data_shuffled.pop(0)
                 ramdom_example = json.loads(str(ramdom_example, encoding='utf-8'))
                 negative_description = " ".join(ramdom_example["docstring_tokens"])
-                tokenized_negative = TFRecordParser.tokenize(negative_description)
+                tokenized_negative, neg_segment_id = TFRecordParser.tokenize(negative_description)
 
                 # Create Example object with features
                 example = TFRecordParser.to_tfrecord_features(tokenized_doc, tokenized_code, tokenized_negative, 0.0)
@@ -78,15 +88,15 @@ class TFRecordParser():
     def tokenize(string):
         encoded = TFRecordParser.tokenizer.batch_encode_plus(
             [string],
-            add_special_tokens=True,
-            max_length=90,
-            return_attention_mask=False,
-            return_token_type_ids=False,
-            padding='max_length',
-            truncation=True,
-            return_tensors="np"
+            add_special_tokens = True,
+            max_length = 90,
+            return_attention_mask = True,
+            return_token_type_ids = True,
+            padding = 'max_length',
+            truncation = True,
+            return_tensors = "np"
         )["input_ids"][0]
-        return encoded  # encoded    encoded["input_ids"][0]
+        return encoded, [1] * 90  # encoded    encoded["input_ids"][0]
 
 
     @staticmethod
