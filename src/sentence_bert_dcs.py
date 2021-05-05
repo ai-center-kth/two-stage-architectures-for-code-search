@@ -350,7 +350,7 @@ if __name__ == "__main__":
 
     #dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
     dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
-                                   16, 0, 50000, 90, sbert_dcs.tokenizer, vocab_tokens, vocab_desc)
+                                   16, 0, 300000, 90, sbert_dcs.tokenizer, vocab_tokens, vocab_desc)
 
     print("Not trained results")
     sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-bert", 100)

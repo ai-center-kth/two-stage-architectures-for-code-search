@@ -351,7 +351,7 @@ if __name__ == "__main__":
     #dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
 
     dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
-                                   16, 0, 50000, 90, tokenizer, vocab_tokens, vocab_desc)
+                                   16, 0, 100000, 90, tokenizer, vocab_tokens, vocab_desc)
 
 
     print("Not trained results")
