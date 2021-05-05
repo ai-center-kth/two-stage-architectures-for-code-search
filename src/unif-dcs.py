@@ -203,11 +203,17 @@ if __name__ == "__main__":
 
 
     print("Not trained results")
-    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", longer_code, longer_desc, 100)
+    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/unif-dcs", longer_code, longer_desc, 100)
 
+    print("First epoch")
     unif_dcs.train(training_model, dataset, script_path+"/../weights/unif_dcs_weights", 1)
 
     print("Trained results with 100")
-    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", longer_code, longer_desc, 100)
+    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sunif-dcs", longer_code, longer_desc, 100)
 
+    print("Second epoch")
+    unif_dcs.train(training_model, dataset, script_path + "/../weights/unif_dcs_weights", 1)
+
+    print("Trained results with 100")
+    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/unif-dcs", longer_code, longer_desc, 100)
 

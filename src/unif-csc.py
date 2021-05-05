@@ -164,7 +164,7 @@ def get_top_n(n, results):
 
 if __name__ == "__main__":
 
-    print("UNIF with SearchCodeChallenge dataset")
+    print("UNIF with CodeSearchNetChallenge dataset")
 
     script_path = str(pathlib.Path(__file__).parent)+"/"
 
@@ -199,10 +199,16 @@ if __name__ == "__main__":
     num_elements = 412178
     steps_per_epoch = num_elements // BATCH_SIZE
 
-    #train(training_model, dataset, script_path + "/../weights/unif_csc_weights", steps_per_epoch)
+    print("Epoch 1")
+    train(training_model, dataset, script_path + "/../weights/unif_csc_weights", steps_per_epoch)
 
-    test_files = sorted(Path(target_path + 'python/test/').glob('**/*.tfrecordtest'))
+    test_files = sorted(Path(target_path + 'python/test/').glob('**/*.tfrecord'))
     test_files = [x.__str__() for x in test_files]
-    test_dataset = TFRecordParser.generate_dataset(tfr_files, 1)
+    test_dataset = TFRecordParser.generate_dataset(test_files, 1)
 
-    test(test_dataset, model_code, model_query, dot_model, script_path+"/../results")
+    test(test_dataset, model_code, model_query, dot_model, script_path+"/../results/unif-csc")
+
+    print("Epoch 2")
+    train(training_model, dataset, script_path + "/../weights/unif_csc_weights", steps_per_epoch)
+
+    test(test_dataset, model_code, model_query, dot_model, script_path + "/../results/unif-csc")
