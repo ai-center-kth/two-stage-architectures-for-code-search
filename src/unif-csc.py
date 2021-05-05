@@ -73,7 +73,9 @@ def generate_model(embedding_size, number_code_tokens, number_desc_tokens, code_
     training_model = tf.keras.Model(inputs=[code_input, good_desc_input, bad_desc_input], outputs=[loss],
                                     name='training_model')
 
-    training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
+    opt = tf.keras.optimizers.Adam(learning_rate=0.1)
+
+    training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer=opt)
     # y_true-y_true avoids warning
 
     return training_model, model_code, model_query, cos_model, dot_model
@@ -131,7 +133,7 @@ def test(dataset, code_model, desc_model, dot_model, results_path):
 
         prediction = dot_model.predict([deleted_tokens, tiled_desc]) # , batch_size=32*4
 
-        results[rowid] = len(prediction[prediction > expected_best_result])
+        results[rowid] = len(prediction[prediction >= expected_best_result])
 
         pbar.update(1)
     pbar.close()
@@ -168,19 +170,19 @@ if __name__ == "__main__":
 
     target_path = script_path+"../data/codesearchnet/tfrecord/"
 
-    tfr_files = sorted(Path(target_path + 'python/train/').glob('**/*.tfrecordtest'))
+    tfr_files = sorted(Path(target_path + 'python/train/').glob('**/*.tfrecord'))
 
     tfr_files = [x.__str__() for x in tfr_files]
 
-    BATCH_SIZE = 1 #64
+    BATCH_SIZE = 64
     dataset = TFRecordParser.generate_dataset(tfr_files, BATCH_SIZE)
 
     number_code_tokens = 30522
     number_desc_tokens = 30522
 
-    longer_code = 45
-    longer_desc = 45
-    embedding_size = 2048 # 16384 #
+    longer_code = 90
+    longer_desc = 90
+    embedding_size = 1024 # 16384 #
 
     print("Building model and loading weights")
     strategy = tf.distribute.MirroredStrategy()
@@ -191,10 +193,10 @@ if __name__ == "__main__":
     training_model, model_code, model_query, cos_model, dot_model = generate_model(embedding_size,
                                                                                    number_code_tokens,
                                                                                    number_desc_tokens, longer_code,
-                                                                                   longer_desc, 0.05)
-    load_weights(training_model, script_path + "/../weights")
+                                                                                   longer_desc, 0.1)
+    #load_weights(training_model, script_path + "/../weights")
 
-    num_elements = 420000
+    num_elements = 412178
     steps_per_epoch = num_elements // BATCH_SIZE
 
     #train(training_model, dataset, script_path + "/../weights/unif_csc_weights", steps_per_epoch)
@@ -203,4 +205,4 @@ if __name__ == "__main__":
     test_files = [x.__str__() for x in test_files]
     test_dataset = TFRecordParser.generate_dataset(tfr_files, 1)
 
-    test(dataset, model_code, model_query, dot_model, script_path+"/../results")
+    test(test_dataset, model_code, model_query, dot_model, script_path+"/../results")

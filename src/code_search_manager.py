@@ -57,7 +57,7 @@ class CodeSearchManager():
             prediction = dot_model.predict([deleted_tokens, tiled_desc], batch_size=32 * 4)
 
             # Store the number of predictions with better performance
-            results[rowid] = len(prediction[prediction >= expected_best_result])
+            results[rowid] = len(prediction[prediction > expected_best_result])
 
             pbar.update(1)
         pbar.close()

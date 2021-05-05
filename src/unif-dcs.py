@@ -21,7 +21,7 @@ class UNIF_DCS(CodeSearchManager):
 
         # dataset info
         self.total_length = 18223872
-        self.chunk_size = 200000   # 18223872  # 10000
+        self.chunk_size = 420000   # 18223872  # 10000
 
 
         number_chunks = self.total_length / self.chunk_size - 1
@@ -100,7 +100,6 @@ class UNIF_DCS(CodeSearchManager):
         good_desc_output = cos_model([code_input, good_desc_input])
         bad_desc_output = cos_model([code_input, bad_desc_input])
 
-        margin = 0.5
         loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
                                       output_shape=lambda x: x[0],
                                       name='loss')([good_desc_output, bad_desc_output])
@@ -108,7 +107,9 @@ class UNIF_DCS(CodeSearchManager):
         training_model = tf.keras.Model(inputs=[code_input, good_desc_input, bad_desc_input], outputs=[loss],
                                         name='training_model')
 
-        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
+        opt = tf.keras.optimizers.Adam(learning_rate=0.1)
+
+        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer=opt)
         # y_true-y_true avoids warning
 
         return training_model, model_code, model_query, dot_model
@@ -151,7 +152,7 @@ class UNIF_DCS(CodeSearchManager):
 
     def load_dataset(self, data_chunk_id, batch_size):
 
-        init_trainig, init_valid, end_valid = self.training_data_chunk(data_chunk_id, 0.8)
+        init_trainig, init_valid, end_valid = self.training_data_chunk(data_chunk_id, 1)
 
         longer_code, longer_desc, number_code_tokens, number_desc_tokens= self.get_dataset_meta_hardcoded()
 
@@ -180,7 +181,7 @@ if __name__ == "__main__":
 
     longer_code, longer_desc, number_code_tokens, number_desc_tokens= unif_dcs.get_dataset_meta_hardcoded()
 
-    embedding_size = 2048
+    embedding_size = 1024
 
     multi_gpu = False
 
@@ -209,6 +210,4 @@ if __name__ == "__main__":
     print("Trained results with 100")
     unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", longer_code, longer_desc, 100)
 
-    print("Trained results with 200")
-    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", longer_code, longer_desc, 1000)
 

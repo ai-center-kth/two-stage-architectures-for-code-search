@@ -7,7 +7,7 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,3"
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
@@ -149,7 +149,7 @@ class SBERT_DCS(CodeSearchManager):
         bad_similarity = cos_model(
             [good_ids_desc, good_mask_desc, good_seg_desc, bad_ids_code, bad_mask_code, bad_seg_code])
 
-        hinge_loss_margin = 0.2
+        hinge_loss_margin = 0.1
         loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
                                       output_shape=lambda x: x[0],
                                       name='loss')([good_similarity, bad_similarity])
@@ -161,7 +161,9 @@ class SBERT_DCS(CodeSearchManager):
             bad_ids_code, bad_mask_code, bad_seg_code], outputs=[loss],
             name='training_model')
 
-        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
+        opt = tf.keras.optimizers.Adam(learning_rate=0.1)
+
+        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer=opt)
 
         return training_model, embedding_code_model, embedding_desc_model, dot_model
 
@@ -287,6 +289,9 @@ class SBERT_DCS(CodeSearchManager):
 
     def train(self, trainig_model, training_set, weights_path, epochs=1):
         trainig_model.fit(training_set, epochs=epochs, verbose=1, batch_size=16)
+        #trainig_model.fit(x=[training_set[0], training_set[1], training_set[2],
+                             #       training_set[3], training_set[4], training_set[5],\
+        #       training_set[6], training_set[7], training_set[8]], y=training_set[9], epochs=epochs, verbose=1, batch_size=16)
 
         trainig_model.save_weights(weights_path)
         print("Model saved!")
@@ -306,19 +311,7 @@ if __name__ == "__main__":
 
     BATCH_SIZE = 32 * 1
 
-    #bert_layer = hub.KerasLayer("https://tfhub.dev/tensorflow/bert_en_uncased_L-12_H-768_A-12/1",
-    #                            trainable=False)
-    # Some verion incompatibility requires this line
-    #tf.gfile = tf.io.gfile
-
-    # Get bert tokenizer
-    #bert_layer.resolved_object.vocab_file.asset_path.numpy()
-    #vocab_file = bert_layer.resolved_object.vocab_file.asset_path.numpy()
-    #do_lower_case = bert_layer.resolved_object.do_lower_case.numpy()
-    #tokenizer = FullTokenizer(vocab_file, do_lower_case)
-    #sbert_dcs.tokenizer = tokenizer
-
-    multi_gpu = False
+    multi_gpu = True
 
     print("Building model and loading weights")
     if multi_gpu:
@@ -343,9 +336,6 @@ if __name__ == "__main__":
 
     file_format = "h5"
 
-    train_tokens = load_hdf5(data_path + "train.tokens." + file_format, 0, 100000)  # 1000000
-    train_desc = load_hdf5(data_path + "train.desc." + file_format, 0, 100000)
-
     vocabulary_tokens = load_pickle(data_path + "vocab.tokens.pkl")
     vocab_tokens = {y: x for x, y in vocabulary_tokens.items()}
 
@@ -358,14 +348,14 @@ if __name__ == "__main__":
     vocabulary_desc = load_pickle(data_path + "vocab.desc.pkl")
     vocab_desc = {y: x for x, y in vocabulary_desc.items()}
 
-    dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
-    #dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
-    #                               16, 0, 100000, 90, sbert_dcs.tokenizer, vocab_tokens, vocab_desc)
+    #dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
+    dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
+                                   8, 0, 50000, 90, sbert_dcs.tokenizer, vocab_tokens, vocab_desc)
 
     print("Not trained results")
     sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-bert", 100)
 
-    desc_bert_layer.trainable = True
+    desc_bert_layer.trainable = False
 
     sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 1)
 

@@ -145,7 +145,7 @@ class SBERT_DCS(CodeSearchManager):
         bad_similarity = cos_model(
             [good_ids_desc, good_mask_desc, good_seg_desc, bad_ids_code, bad_mask_code, bad_seg_code])
 
-        hinge_loss_margin = 0.2
+        hinge_loss_margin = 0.1
         loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
                                       output_shape=lambda x: x[0],
                                       name='loss')([good_similarity, bad_similarity])
@@ -342,10 +342,6 @@ if __name__ == "__main__":
 
     file_format = "h5"
 
-    # 18223872 (len) #1000000
-    #train_tokens = load_hdf5(data_path + "train.tokens." + file_format, 0, 200000)  # 1000000
-    #train_desc = load_hdf5(data_path + "train.desc." + file_format, 0, 200000)
-
     vocabulary_tokens = load_pickle(data_path + "vocab.tokens.pkl")
     vocab_tokens = {y: x for x, y in vocabulary_tokens.items()}
 
@@ -355,21 +351,18 @@ if __name__ == "__main__":
     #dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
 
     dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
-                                   16, 0, 25000, 90, tokenizer, vocab_tokens, vocab_desc)
+                                   16, 0, 50000, 90, tokenizer, vocab_tokens, vocab_desc)
 
 
     #print("Not trained results")
     #sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", 100)
 
-    bert_layer.trainable = False
+    bert_layer.trainable = True
 
-    #sbert_dcs.train(training_model, dataset, script_path+"/../weights/sroberta_dcs_weights", 1, batch_size=16)
+    sbert_dcs.train(training_model, dataset, script_path+"/../weights/sroberta_dcs_weights", 1)
 
     print("Trained results with 100")
     sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", 100)
 
     print("Trained results with 1000")
-    #sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", 1000)
-
-    print("Trained results with 10000")
-    #sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", 10000)
+    sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", 200)

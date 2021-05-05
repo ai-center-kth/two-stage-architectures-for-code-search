@@ -11,6 +11,7 @@ import tensorflow as tf
 import transformers
 import random
 import pathlib
+import re
 
 class TFRecordParser():
 
@@ -28,6 +29,29 @@ class TFRecordParser():
             string = string.replace(char, ' ')
         return string
 
+
+
+    @staticmethod
+    def clean_str(string):
+        string = string.strip()
+        string = string.replace("(", " ").replace(")", " ").replace("\"", " ").replace("'", " ")\
+            .replace("&quot;"," ").replace("_"," ").replace( ".", " ").replace(",", " ").replace("=", " ")
+        string = string.replace(":", " ").replace("[", " ").replace("]", " ").replace("\\", " ").replace("/", " ")
+        string = string.replace("+", " ").replace("-", " ").replace("_", " ").replace("&gt;", " ").replace("{", "").replace(
+            "}", "")
+        string = string.replace("%", " ").replace("$", " ")
+        # remove numbers
+        string = re.sub('([0-9]+.[0-9]+|[0-9]+)', ' NUM ', string)
+
+        # Split camelcase
+        string = re.sub('([A-Z][a-z]+)', r' \1', re.sub('([A-Z]+)', r' \1', string))
+
+        string = string.lower()
+        string = string.strip()
+
+        # remove non alphanumeric characters
+        string = re.sub("[^0-9a-zA-Z ]+", ' ', string)
+        return string
 
     @staticmethod
     def to_tfrecord_features(tokenized_code, tokenized_doc, tokenized_negative, similarity):
@@ -69,6 +93,9 @@ class TFRecordParser():
                 docstring_tokens = " ".join(line_a["docstring_tokens"])
                 #code_tokens = " ".join(line_a["code_tokens"])
                 code_tokens = ' '.join([TFRecordParser.format_str(token) for token in line_a['code_tokens']])
+
+                docstring_tokens = TFRecordParser.clean_str(docstring_tokens)
+                code_tokens = TFRecordParser.clean_str(code_tokens)
 
                 tokenized_doc, doc_segment_id = TFRecordParser.tokenize(docstring_tokens)
                 tokenized_code, code_segment_id  = TFRecordParser.tokenize(code_tokens)
