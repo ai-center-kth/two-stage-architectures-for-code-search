@@ -7,7 +7,7 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1,3"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "1,3"
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
@@ -225,7 +225,7 @@ class SBERT_DCS(CodeSearchManager):
 
     def tokenize_sentences(self, input1_str, input2_str):
         tokenized = self.tokenizer.batch_encode_plus(
-            [[input1_str, input2_str]],
+            [input1_str],
             add_special_tokens=True,
             max_length=90,
             return_attention_mask=True,
@@ -288,7 +288,7 @@ class SBERT_DCS(CodeSearchManager):
                np.array(bad_retokenized_code), np.array(bad_retokenized_mask_code), np.array(bad_retokenized_type_code),labels
 
     def train(self, trainig_model, training_set, weights_path, epochs=1):
-        trainig_model.fit(training_set, epochs=epochs, verbose=1, batch_size=16)
+        trainig_model.fit(training_set, epochs=epochs, verbose=1)
         #trainig_model.fit(x=[training_set[0], training_set[1], training_set[2],
                              #       training_set[3], training_set[4], training_set[5],\
         #       training_set[6], training_set[7], training_set[8]], y=training_set[9], epochs=epochs, verbose=1, batch_size=16)
@@ -311,7 +311,7 @@ if __name__ == "__main__":
 
     BATCH_SIZE = 32 * 1
 
-    multi_gpu = True
+    multi_gpu = False
 
     print("Building model and loading weights")
     if multi_gpu:
@@ -328,7 +328,7 @@ if __name__ == "__main__":
         desc_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
         #code_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
         training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(desc_bert_layer)
-        sbert_dcs.load_weights(training_model, script_path + "/../weights/sbert_dcs_weights")
+        #sbert_dcs.load_weights(training_model, script_path + "/../weights/sbert_dcs_weights")
 
     sbert_dcs.tokenizer = transformers.BertTokenizer.from_pretrained(
         "bert-base-uncased", do_lower_case=True
@@ -350,18 +350,18 @@ if __name__ == "__main__":
 
     #dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
     dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
-                                   8, 0, 50000, 90, sbert_dcs.tokenizer, vocab_tokens, vocab_desc)
+                                   16, 0, 50000, 90, sbert_dcs.tokenizer, vocab_tokens, vocab_desc)
 
     print("Not trained results")
     sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-bert", 100)
 
-    desc_bert_layer.trainable = False
+    desc_bert_layer.trainable = True
 
     sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 1)
 
     print("Trained results with 100")
     sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-bert", 100)
 
-    #print("Trained results with 1000")
-    #sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-bert", 1000)
+    print("Trained results with 200")
+    sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-bert", 200)
 

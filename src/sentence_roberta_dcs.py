@@ -354,8 +354,8 @@ if __name__ == "__main__":
                                    16, 0, 50000, 90, tokenizer, vocab_tokens, vocab_desc)
 
 
-    #print("Not trained results")
-    #sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", 100)
+    print("Not trained results")
+    sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", 100)
 
     bert_layer.trainable = True
 
