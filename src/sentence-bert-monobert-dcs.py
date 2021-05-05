@@ -23,7 +23,7 @@ import random
 import transformers
 
 from mono_bert import MONOBERT_DCS
-from sentece_bert_dcs import SBERT_DCS
+from sentence_bert_dcs import SBERT_DCS
 
 class SBERT_MONOBERT_DCS(CodeSearchManager):
 
