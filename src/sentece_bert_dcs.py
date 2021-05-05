@@ -4,10 +4,10 @@ import sys
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
+subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 import os
-#os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
@@ -16,6 +16,7 @@ import random
 from help import *
 from code_search_manager import CodeSearchManager
 import transformers
+from data_generators.sentence_bert_dcs_generator import DataGeneratorDCSBERT
 
 class SBERT_DCS(CodeSearchManager):
 
@@ -171,9 +172,9 @@ class SBERT_DCS(CodeSearchManager):
 
 # snn_dcs_weights
 
-    def test(self, model_code, model_query, dot_model, results_path):
-        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, 100)
-        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, 100) # 10000
+    def test(self, model_code, model_query, dot_model, results_path, number_of_elements=100):
+        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, number_of_elements)
+        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, number_of_elements) # 10000
 
         code_test_vector = test_tokens
         desc_test_vector = test_desc
@@ -221,18 +222,6 @@ class SBERT_DCS(CodeSearchManager):
         return self.tokenizer.convert_tokens_to_ids(tokens)
 
     def tokenize_sentences(self, input1_str, input2_str):
-        #input1_encoded = self.encode_sentence(input1_str)
-        #input2_encoded = self.encode_sentence(input2_str)
-        #cls_ = self.tokenizer.convert_tokens_to_ids(['[CLS]'])
-        #concated = cls_ + input1_encoded + input2_encoded
-        #concated_ids = concated + [0] * ((self.max_len) - len(concated))
-
-        #masks = [1] * len(concated) + [0] * ((self.max_len) - len(concated))
-        #type_ids = [0] + [0] * len(input1_encoded) + [1] * len(input2_encoded) + [0] * (
-        #            (self.max_len) - (1 + len(input1_encoded) + len(input2_encoded)))
-
-        #return concated_ids[:self.max_len], masks[:self.max_len], type_ids[:self.max_len]
-        # return concated_ids, masks, type_ids
         tokenized = self.tokenizer.batch_encode_plus(
             [[input1_str, input2_str]],
             add_special_tokens=True,
@@ -297,19 +286,7 @@ class SBERT_DCS(CodeSearchManager):
                np.array(bad_retokenized_code), np.array(bad_retokenized_mask_code), np.array(bad_retokenized_type_code),labels
 
     def train(self, trainig_model, training_set, weights_path, epochs=1):
-        trainig_model.fit(x=[(training_set[0]),
-                     (training_set[1]),
-                     (training_set[2]),
-
-                     (training_set[3]),
-                     (training_set[4]),
-                     (training_set[5]),
-
-                     (training_set[6]),
-                     (training_set[7]),
-                     (training_set[8]),
-                     ],  # np.array(tokenized_code)
-                  y=training_set[9], epochs=epochs, verbose=1, batch_size=16)
+        trainig_model.fit(training_set, epochs=epochs, verbose=1, batch_size=16)
 
         trainig_model.save_weights(weights_path)
         print("Model saved!")
@@ -341,7 +318,7 @@ if __name__ == "__main__":
     #tokenizer = FullTokenizer(vocab_file, do_lower_case)
     #sbert_dcs.tokenizer = tokenizer
 
-    multi_gpu = True
+    multi_gpu = False
 
     print("Building model and loading weights")
     if multi_gpu:
@@ -351,14 +328,14 @@ if __name__ == "__main__":
 
         with strategy.scope():
             desc_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
-            code_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
-            training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(desc_bert_layer, code_bert_layer)
+            #code_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
+            training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(desc_bert_layer)
             #sbert_dcs.load_weights(training_model, script_path+"/../weights/sbert_dcs_weights")
     else:
         desc_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
-        code_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
-        training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(desc_bert_layer, code_bert_layer)
-        #sbert_dcs.load_weights(training_model, script_path + "/../weights/sbert_dcs_weights")
+        #code_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
+        training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(desc_bert_layer)
+        sbert_dcs.load_weights(training_model, script_path + "/../weights/sbert_dcs_weights")
 
     sbert_dcs.tokenizer = transformers.BertTokenizer.from_pretrained(
         "bert-base-uncased", do_lower_case=True
@@ -366,9 +343,14 @@ if __name__ == "__main__":
 
     file_format = "h5"
 
-    # 18223872 (len) #1000000
-    train_tokens = load_hdf5(data_path + "train.tokens." + file_format, 0, 50000)  # 1000000
-    train_desc = load_hdf5(data_path + "train.desc." + file_format, 0, 50000)
+    train_tokens = load_hdf5(data_path + "train.tokens." + file_format, 0, 100000)  # 1000000
+    train_desc = load_hdf5(data_path + "train.desc." + file_format, 0, 100000)
+
+    vocabulary_tokens = load_pickle(data_path + "vocab.tokens.pkl")
+    vocab_tokens = {y: x for x, y in vocabulary_tokens.items()}
+
+    vocabulary_desc = load_pickle(data_path + "vocab.desc.pkl")
+    vocab_desc = {y: x for x, y in vocabulary_desc.items()}
 
     vocabulary_tokens = load_pickle(data_path + "vocab.tokens.pkl")
     vocab_tokens = {y: x for x, y in vocabulary_tokens.items()}
@@ -377,11 +359,19 @@ if __name__ == "__main__":
     vocab_desc = {y: x for x, y in vocabulary_desc.items()}
 
     dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
+    #dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
+    #                               16, 0, 100000, 90, sbert_dcs.tokenizer, vocab_tokens, vocab_desc)
 
-    desc_bert_layer.trainable = False
-    code_bert_layer.trainable = False
+    print("Not trained results")
+    sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-bert", 100)
+
+    desc_bert_layer.trainable = True
 
     sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 1)
 
-    sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results")
+    print("Trained results with 100")
+    sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-bert", 100)
+
+    #print("Trained results with 1000")
+    #sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-bert", 1000)
 

@@ -1,6 +1,3 @@
-import subprocess
-import sys
-
 #subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
 #subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 
@@ -15,13 +12,11 @@ import os
 import tensorflow as tf
 from tensorflow.keras import backend as K
 import pathlib
-import random
 from help import *
-from sentence_bert_dcs_generator import DataGeneratorDCSBERT
+from data_generators.sentence_bert_dcs_generator import DataGeneratorDCSBERT
 from code_search_manager import CodeSearchManager
-import transformers
 from transformers.models.bert import convert_bert_original_tf_checkpoint_to_pytorch
-from transformers import BertForPreTraining, BertConfig, TFBertModel
+from transformers import BertConfig, TFBertModel
 from cubert.cubert_hug_tokenizer import CuBertHugTokenizer
 
 class ScuBERT_DCS(CodeSearchManager):
@@ -169,15 +164,22 @@ class ScuBERT_DCS(CodeSearchManager):
         return training_model, embedding_code_model, embedding_desc_model, dot_model
 
 
+    def tokenize_sentences(self, input1_str, input2_str):
+        tokenized = self.tokenizer.batch_encode_plus(
+            [[input1_str, input2_str]],
+            add_special_tokens=True,
+            max_length=self.max_len,
+            return_attention_mask=True,
+            return_token_type_ids=True,
+            pad_to_max_length=True,
+            return_tensors="np",
+        )
 
+        return tokenized["input_ids"][0], tokenized["attention_mask"][0], tokenized["token_type_ids"][0]
 
-
-
-# snn_dcs_weights
-
-    def test(self, model_code, model_query, dot_model, results_path):
-        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, 100)
-        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, 100) # 10000
+    def test(self, model_code, model_query, dot_model, results_path, number_of_elements=100):
+        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, number_of_elements)
+        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, number_of_elements) # 10000
 
         code_test_vector = test_tokens
         desc_test_vector = test_desc
@@ -232,7 +234,6 @@ class ScuBERT_DCS(CodeSearchManager):
         MODEL_PATH_TORCH = path+'/../cuBERTconfig/20200621_Python_function_docstring__epochs_20__pre_trained_epochs_1_model.ckpt-6072.bin'
         if not os.path.isfile(MODEL_PATH_TORCH):
             convert_bert_original_tf_checkpoint_to_pytorch.convert_tf_checkpoint_to_pytorch(MODEL_PATH, MODEL_CONFIG, MODEL_PATH_TORCH)
-            return
         model_config = BertConfig.from_json_file(MODEL_CONFIG)
         cubert_layer = TFBertModel.from_pretrained(pretrained_model_name_or_path=MODEL_PATH_TORCH, from_pt=True,
                                                    config=model_config)
@@ -279,14 +280,13 @@ if __name__ == "__main__":
             bert_layer = scubert_dcs.get_cubert_layer(script_path)
 
             training_model, model_code, model_query, dot_model = scubert_dcs.sbert_dcs.generate_model(bert_layer)
-            scubert_dcs.sbert_dcs.load_weights(training_model, script_path+"/../weights/sroberta_dcs_weights")
-            #sbert_dcs.load_weights(training_model, script_path+"/../weights/sbert_dcs_weights")
+            #scubert_dcs.load_weights(training_model, script_path+"/../weights/scubert_dcs_weights")
     else:
         #bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
         bert_layer = scubert_dcs.get_cubert_layer(script_path)
         training_model, model_code, model_query, dot_model = scubert_dcs.generate_model(bert_layer)
         #scubert_dcs.sbert_dcs.load_weights(training_model, script_path+"/../weights/scubert_dcs_weights")
-        #sbert_dcs.load_weights(training_model, script_path + "/../weights/scubert_dcs_weights")
+        #scubert_dcs.load_weights(training_model, script_path + "/../weights/scubert_dcs_weights")
 
     MODEL_VOCAB = script_path + '/../cuBERTconfig/vocab.txt'
     tokenizer = CuBertHugTokenizer(MODEL_VOCAB)
@@ -306,16 +306,20 @@ if __name__ == "__main__":
     vocabulary_desc = load_pickle(data_path + "vocab.desc.pkl")
     vocab_desc = {y: x for x, y in vocabulary_desc.items()}
 
-
-
     dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
-                                   16, 0, 50000, 90, tokenizer, vocab_tokens, vocab_desc)
+                                   8, 0, 200000, 90, tokenizer, vocab_tokens, vocab_desc)
 
-    #dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
 
-    bert_layer.trainable = False
+
+    print("Not trained results")
+    scubert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-cubert", 100)
+
+    bert_layer.trainable = True
 
     scubert_dcs.train(training_model, dataset, script_path+"/../weights/scubert_dcs_weights", 1)
 
-    scubert_dcs.test(model_code, model_query, dot_model, script_path+"/../results")
+    print("Trained results with 100")
+    scubert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-cubert", 100)
 
+    print("Trained results with 1000")
+    scubert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-cubert", 1000)

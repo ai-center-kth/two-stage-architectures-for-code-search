@@ -107,7 +107,7 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
 
     def tokenize_sentences(self, input1_str, input2_str):
         tokenized = self.tokenizer.batch_encode_plus(
-            [[input1_str, input2_str]],
+            [input1_str],
             add_special_tokens=True,
             max_length=self.max_length,
             return_attention_mask=True,

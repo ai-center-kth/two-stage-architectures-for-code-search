@@ -1,16 +1,16 @@
 import subprocess
 import sys
 
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
 import pathlib
-from dcs_data_generator import DataGeneratorDCS
+from data_generators.dcs_data_generator import DataGeneratorDCS
 from help import *
 from code_search_manager import CodeSearchManager
 
@@ -21,7 +21,7 @@ class UNIF_DCS(CodeSearchManager):
 
         # dataset info
         self.total_length = 18223872
-        self.chunk_size = 100000   # 18223872  # 10000
+        self.chunk_size = 200000   # 18223872  # 10000
 
 
         number_chunks = self.total_length / self.chunk_size - 1
@@ -115,9 +115,9 @@ class UNIF_DCS(CodeSearchManager):
 
 
 
-    def test(self, model_code, model_query, dot_model, results_path, code_length, desc_length):
-        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, 100)
-        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, 100) # 10000
+    def test(self, model_code, model_query, dot_model, results_path, code_length, desc_length, number_of_elements=100):
+        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, number_of_elements)
+        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, number_of_elements) # 10000
 
         test_tokens = pad(test_tokens, code_length)
         test_desc = pad(test_desc, desc_length)
@@ -199,12 +199,16 @@ if __name__ == "__main__":
                                                                                      longer_desc, 0.05)
         #unif_dcs.load_weights(training_model, script_path + "/../weights/unif_dcs_weights")
 
-    unif_dcs.train(training_model, dataset, script_path+"/../weights/unif_dcs_weights")
-
-    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results", longer_code, longer_desc)
 
 
-    unif_dcs.train(training_model, dataset, script_path+"/../weights/unif_dcs_weights")
+    print("Not trained results")
+    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", longer_code, longer_desc, 100)
 
-    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results", longer_code, longer_desc)
+    unif_dcs.train(training_model, dataset, script_path+"/../weights/unif_dcs_weights", 1)
+
+    print("Trained results with 100")
+    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", longer_code, longer_desc, 100)
+
+    print("Trained results with 200")
+    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-roberta", longer_code, longer_desc, 1000)
 

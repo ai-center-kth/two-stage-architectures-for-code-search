@@ -12,16 +12,12 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
 # import pickle5 as pickle
 import tensorflow as tf
 from tensorflow.keras import backend as K
-import pickle
-import sys
-import tables
-from tqdm import tqdm
 
 import os.path
 import time
 import pathlib
 
-from dcs_data_generator import DataGeneratorDCS
+from data_generators.dcs_data_generator import DataGeneratorDCS
 from help import *
 
 

@@ -3,6 +3,8 @@ import os
 from tqdm import tqdm
 import numpy as np
 import time
+import help
+import random
 
 class CodeSearchManager():
 
@@ -40,15 +42,22 @@ class CodeSearchManager():
         pbar = tqdm(total=len(embedded_desc))
 
         for rowid, desc in enumerate(embedded_desc):
+
+            # Get the similarity with the ground truth
             expected_best_result = dot_model.predict([embedded_tokens[rowid].reshape((1, -1)), embedded_desc[rowid].reshape((1, -1))])[0][0]
 
+            # Now we compare this desc with the rest of the code snippets
+            # Remove this description row from the list of code embeddings
             deleted_tokens = np.delete(embedded_tokens, rowid, 0)
 
+            # Create array same length as the rest of code embeddings only containing this description
             tiled_desc = np.tile(desc, (deleted_tokens.shape[0], 1))
 
+            # Similarity between this description and the rest of code embeddings
             prediction = dot_model.predict([deleted_tokens, tiled_desc], batch_size=32 * 4)
 
-            results[rowid] = len(prediction[prediction > expected_best_result])
+            # Store the number of predictions with better performance
+            results[rowid] = len(prediction[prediction >= expected_best_result])
 
             pbar.update(1)
         pbar.close()
@@ -69,4 +78,23 @@ class CodeSearchManager():
 
         f.write("top1,top3,top5\n")
         f.write( str(top_1) + "," + str(top_3) + "," + str(top_5) + "\n")
+        f.close()
+
+        help.save_pickle(results_path + time.strftime("%Y%m%d-%H%M%S")+ "-rankings" + ".pkl", results)
+
+        f = open(results_path + time.strftime("%Y%m%d-%H%M%S")+ "-similarities" + ".csv", "a")
+        f.write("match,similarity\n")
+
+        for i in range(0, len(embedded_tokens)):
+            similarity = dot_model.predict([embedded_tokens[i].reshape((1, -1)), embedded_desc[i].reshape((1, -1))])[0][0]
+            f.write( str(1) + "," + str(similarity) + "\n")
+
+
+        for i in range(0, len(embedded_tokens)):
+            random_code = random.randint(0, len(embedded_tokens)-1)
+            random_desc = random.randint(0, len(embedded_tokens)-1)
+
+            similarity = dot_model.predict([embedded_tokens[random_code].reshape((1, -1)), embedded_desc[random_desc].reshape((1, -1))])[0][0]
+            f.write( str(0) + "," + str(similarity) + "\n")
+
         f.close()

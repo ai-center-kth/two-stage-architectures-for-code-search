@@ -10,7 +10,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 import tensorflow as tf
 from tensorflow.keras import backend as K
 import pathlib
-from dcs_data_generator import DataGeneratorDCS
+from data_generators.dcs_data_generator import DataGeneratorDCS
 from help import *
 from code_search_manager import CodeSearchManager
 
