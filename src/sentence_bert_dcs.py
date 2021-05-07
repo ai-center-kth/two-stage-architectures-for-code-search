@@ -4,7 +4,7 @@ import sys
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
 subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 
-subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 import os
 #os.environ["CUDA_VISIBLE_DEVICES"] = "1,3"
@@ -58,7 +58,20 @@ class SBERT_DCS(CodeSearchManager):
         return longer_sentence, number_tokens
 
 
+
     def generate_model(self, desc_bert_layer, code_bert_layer=None):
+        def mean_pooling(model_output, attention_mask):
+            token_embeddings = model_output[0]  # First element of model_output contains all token embeddings
+
+            input_mask_expanded = tf.repeat(tf.expand_dims(attention_mask, -1), token_embeddings.shape[-1], axis=-1)
+            input_mask_expanded = tf.dtypes.cast(input_mask_expanded, tf.float32)
+            sum_embeddings = tf.math.reduce_sum(token_embeddings * input_mask_expanded, 1)
+
+            sum_mask = tf.keras.backend.clip(tf.math.reduce_sum(input_mask_expanded, 1), min_value=0, max_value=1000000)
+
+            return sum_embeddings / sum_mask
+
+
 
         if code_bert_layer is None:
             code_bert_layer = desc_bert_layer
@@ -75,8 +88,8 @@ class SBERT_DCS(CodeSearchManager):
 
         bert_desc_output = desc_bert_layer([input_word_ids_desc, input_mask_desc, segment_ids_desc])
 
-
-        desc_output = tf.reduce_mean(bert_desc_output[0], 1)
+        desc_output = tf.keras.layers.Lambda(lambda x: mean_pooling(x[0], x[1]))([bert_desc_output[0], input_mask_desc])
+        #desc_output = tf.reduce_mean(bert_desc_output[0], 1)
 
         input_word_ids_code = tf.keras.layers.Input(shape=(self.max_len,),
                                                     dtype=tf.int32,
@@ -90,7 +103,8 @@ class SBERT_DCS(CodeSearchManager):
 
         bert_code_output = code_bert_layer([input_word_ids_code, input_mask_code, segment_ids_code])
 
-        code_output = tf.reduce_mean(bert_code_output[0], 1)
+        #code_output = tf.reduce_mean(bert_code_output[0], 1)
+        code_output = tf.keras.layers.Lambda(lambda x: mean_pooling(x[0], x[1]))([bert_code_output[0], input_mask_code])
 
         similarity = tf.keras.layers.Dot(axes=1, normalize=True)([desc_output, code_output])
 
@@ -149,7 +163,7 @@ class SBERT_DCS(CodeSearchManager):
         bad_similarity = cos_model(
             [good_ids_desc, good_mask_desc, good_seg_desc, bad_ids_code, bad_mask_code, bad_seg_code])
 
-        hinge_loss_margin = 0.1
+        hinge_loss_margin = 0.6
         loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
                                       output_shape=lambda x: x[0],
                                       name='loss')([good_similarity, bad_similarity])
@@ -161,7 +175,7 @@ class SBERT_DCS(CodeSearchManager):
             bad_ids_code, bad_mask_code, bad_seg_code], outputs=[loss],
             name='training_model')
 
-        opt = tf.keras.optimizers.Adam(learning_rate=0.1)
+        opt = tf.keras.optimizers.Adam(learning_rate=0.000001)
 
         training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer=opt)
 
@@ -236,6 +250,98 @@ class SBERT_DCS(CodeSearchManager):
 
         return tokenized["input_ids"][0], tokenized["attention_mask"][0], tokenized["token_type_ids"][0]
 
+    def load_dataset_dummy(self):
+        retokenized_desc = []
+        retokenized_mask_desc = []
+        retokenized_type_desc = []
+
+        retokenized_code = []
+        retokenized_mask_code = []
+        retokenized_type_code = []
+
+        bad_retokenized_code = []
+        bad_retokenized_mask_code = []
+        bad_retokenized_type_code = []
+
+        descs = [ "red blue green pink"]
+        codes = [ "beautiful colors smile nice"]
+        negatives = ["sad contamination depression"]
+
+        for idx,desc in enumerate(descs):
+            code = codes[idx]
+            neg_code = negatives[idx]
+
+            desc_ = self.tokenize_sentences(desc, "")
+            code_ = self.tokenize_sentences(code, "")
+            neg_ = self.tokenize_sentences(neg_code, "")
+            retokenized_desc.append(desc_[0])
+            retokenized_mask_desc.append(desc_[1])
+            retokenized_type_desc.append(desc_[2])
+
+            retokenized_code.append(code_[0])
+            retokenized_mask_code.append(code_[1])
+            retokenized_type_code.append(code_[2])
+
+            bad_retokenized_code.append(neg_[0])
+            bad_retokenized_mask_code.append(neg_[1])
+            bad_retokenized_type_code.append(neg_[2])
+
+            # labels.append([0])
+
+        labels = np.zeros((len(bad_retokenized_code), 1))
+
+        return np.array(retokenized_desc), np.array(retokenized_mask_desc), np.array(retokenized_type_desc),\
+               np.array(retokenized_code), np.array(retokenized_mask_code), np.array(retokenized_type_code),\
+               np.array(bad_retokenized_code), np.array(bad_retokenized_mask_code), np.array(bad_retokenized_type_code),labels
+
+
+    def dummy_test(self, code_model, desc_model, dot_model):
+
+        test_tokens = load_hdf5(self.data_path + "train.tokens.h5" , 0, 1000)
+        test_desc = load_hdf5(self.data_path + "train.desc.h5" , 0, 1000) # 10000
+
+        code_test_vector = test_tokens
+        desc_test_vector = test_desc
+
+        embedded_tokens = []
+        embedded_desc = []
+
+        print("Embedding tokens and desc...")
+        for idx, token in enumerate(code_test_vector):
+            desc = (" ".join([vocab_desc[x] for x in desc_test_vector[idx]]))
+            desc_ = self.tokenize_sentences(desc, "")
+
+            type_ = "good"
+            if idx%2 ==0:
+                type_ = "good"
+                code = (" ".join([vocab_tokens[x] for x in code_test_vector[idx]]))
+                code_ = self.tokenize_sentences(code, "")
+            else:
+                random_index = random.randint(0, len(code_test_vector) - 1)
+                if random_index == idx:
+                    continue
+
+                type_ = "bad"
+                code = (" ".join([vocab_tokens[x] for x in code_test_vector[random_index]]))
+                code_ = self.tokenize_sentences(code, "")
+
+
+            code_embedding = (model_code.predict([np.array(code_[0]).reshape((1, -1)),
+                                                       np.array(code_[1]).reshape((1, -1)),
+                                                       np.array(code_[2]).reshape((1, -1))
+
+                                                       ])[0])
+
+            desc_embedding = (model_query.predict([np.array(desc_[0]).reshape((1, -1)),
+                                                     np.array(desc_[1]).reshape((1, -1)),
+                                                     np.array(desc_[2]).reshape((1, -1))
+
+                                                     ])[0])
+            print(type_, dot_model.predict([desc_embedding.reshape((1, -1)), code_embedding.reshape((1, -1))])[0][0])
+
+            if idx >= 10:
+                break
+
     def load_dataset(self, train_desc, train_tokens, vocab_desc, vocab_tokens):
 
         retokenized_desc = []
@@ -290,7 +396,7 @@ class SBERT_DCS(CodeSearchManager):
     def train(self, trainig_model, training_set, weights_path, epochs=1):
         trainig_model.fit(training_set, epochs=epochs, verbose=1)
         #trainig_model.fit(x=[training_set[0], training_set[1], training_set[2],
-                             #       training_set[3], training_set[4], training_set[5],\
+        #                            training_set[3], training_set[4], training_set[5],\
         #       training_set[6], training_set[7], training_set[8]], y=training_set[9], epochs=epochs, verbose=1, batch_size=16)
 
         trainig_model.save_weights(weights_path)
@@ -323,12 +429,12 @@ if __name__ == "__main__":
             desc_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
             #code_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
             training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(desc_bert_layer)
-            #sbert_dcs.load_weights(training_model, script_path+"/../weights/sbert_dcs_weights")
+            sbert_dcs.load_weights(training_model, script_path+"/../weights/sbert_dcs_weights")
     else:
         desc_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
         #code_bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
         training_model, model_code, model_query, dot_model = sbert_dcs.generate_model(desc_bert_layer)
-        #sbert_dcs.load_weights(training_model, script_path + "/../weights/sbert_dcs_weights")
+        sbert_dcs.load_weights(training_model, script_path + "/../weights/sbert_dcs_weights")
 
     sbert_dcs.tokenizer = transformers.BertTokenizer.from_pretrained(
         "bert-base-uncased", do_lower_case=True
@@ -342,22 +448,20 @@ if __name__ == "__main__":
     vocabulary_desc = load_pickle(data_path + "vocab.desc.pkl")
     vocab_desc = {y: x for x, y in vocabulary_desc.items()}
 
-    vocabulary_tokens = load_pickle(data_path + "vocab.tokens.pkl")
-    vocab_tokens = {y: x for x, y in vocabulary_tokens.items()}
-
-    vocabulary_desc = load_pickle(data_path + "vocab.desc.pkl")
-    vocab_desc = {y: x for x, y in vocabulary_desc.items()}
-
     #dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
     dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
-                                   16, 0, 300000, 90, sbert_dcs.tokenizer, vocab_tokens, vocab_desc)
-
+                                   16, 0, 600000, 90, sbert_dcs.tokenizer, vocab_tokens, vocab_desc)
+    #dataset = sbert_dcs.load_dataset_dummy()
     print("Not trained results")
-    sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-bert", 100)
+    #sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-bert", 100)
+
+    #sbert_dcs.test(model_code, model_query, dot_model, script_path + "/../results/sentence-bert", 200)
+
+    sbert_dcs.dummy_test(model_code, model_query, dot_model)
 
     desc_bert_layer.trainable = True
 
-    sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 1)
+    #sbert_dcs.train(training_model, dataset, script_path+"/../weights/sbert_dcs_weights", 1)
 
     print("Trained results with 100")
     sbert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-bert", 100)

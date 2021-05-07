@@ -1,18 +1,19 @@
 import subprocess
 import sys
 
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
+subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
+subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 
 import os
-#os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
 import pathlib
 from data_generators.dcs_data_generator import DataGeneratorDCS
-from help import *
+import help
 from code_search_manager import CodeSearchManager
+import numpy as np
 
 class UNIF_DCS(CodeSearchManager):
 
@@ -21,8 +22,7 @@ class UNIF_DCS(CodeSearchManager):
 
         # dataset info
         self.total_length = 18223872
-        self.chunk_size = 420000   # 18223872  # 10000
-
+        self.chunk_size = 18223872   # 18223872  # 10000
 
         number_chunks = self.total_length / self.chunk_size - 1
         self.number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
@@ -35,9 +35,9 @@ class UNIF_DCS(CodeSearchManager):
 
     def get_dataset_meta(self):
         # 18223872 (len) #1000000
-        code_vector = load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
-        desc_vector = load_hdf5(data_path + "train.desc.h5", 0, 18223872)
-        vocabulary_merged = load_pickle(data_path + "vocab.merged.pkl")
+        code_vector = help.load_hdf5(self.data_path + "train.tokens.h5", 0, 18223872)
+        desc_vector = help.load_hdf5(self.data_path + "train.desc.h5", 0, 18223872)
+        vocabulary_merged = help.load_pickle(data_path + "vocab.merged.pkl")
 
         longer_code = max(len(t) for t in code_vector)
         print("longer_code", longer_code)
@@ -107,7 +107,7 @@ class UNIF_DCS(CodeSearchManager):
         training_model = tf.keras.Model(inputs=[code_input, good_desc_input, bad_desc_input], outputs=[loss],
                                         name='training_model')
 
-        opt = tf.keras.optimizers.Adam(learning_rate=0.1)
+        opt = tf.keras.optimizers.Adam(learning_rate=0.0001)
 
         training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer=opt)
         # y_true-y_true avoids warning
@@ -117,11 +117,11 @@ class UNIF_DCS(CodeSearchManager):
 
 
     def test(self, model_code, model_query, dot_model, results_path, code_length, desc_length, number_of_elements=100):
-        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, number_of_elements)
-        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, number_of_elements) # 10000
+        test_tokens = help.load_hdf5(self.data_path + "test.tokens.h5" , 0, number_of_elements)
+        test_desc = help.load_hdf5(self.data_path + "test.desc.h5" , 0, number_of_elements) # 10000
 
-        test_tokens = pad(test_tokens, code_length)
-        test_desc = pad(test_desc, desc_length)
+        test_tokens = help.pad(test_tokens, code_length)
+        test_desc = help.pad(test_desc, desc_length)
 
         embedding_tokens = [None] * len(test_tokens)
         print("Embedding tokens...")
@@ -138,7 +138,6 @@ class UNIF_DCS(CodeSearchManager):
             embedding_desc[idx] = embedding_result.numpy()[0]
 
         self.test_embedded(dot_model, embedding_tokens, embedding_desc, results_path)
-
 
 
     def training_data_chunk(self, id, valid_perc):
@@ -175,13 +174,13 @@ if __name__ == "__main__":
 
     unif_dcs = UNIF_DCS(data_path, data_chunk_id)
 
-    BATCH_SIZE = 32 * 1
+    BATCH_SIZE = 32 * 2
 
     dataset = unif_dcs.load_dataset(0, BATCH_SIZE)
 
     longer_code, longer_desc, number_code_tokens, number_desc_tokens= unif_dcs.get_dataset_meta_hardcoded()
 
-    embedding_size = 1024
+    embedding_size = 2048
 
     multi_gpu = False
 
@@ -197,7 +196,7 @@ if __name__ == "__main__":
     else:
         training_model, model_code, model_query, dot_model = unif_dcs.generate_model(embedding_size, number_code_tokens,
                                                                                      number_desc_tokens, longer_code,
-                                                                                     longer_desc, 0.05)
+                                                                                     longer_desc, 0.5)
         #unif_dcs.load_weights(training_model, script_path + "/../weights/unif_dcs_weights")
 
 
@@ -211,9 +210,6 @@ if __name__ == "__main__":
     print("Trained results with 100")
     unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sunif-dcs", longer_code, longer_desc, 100)
 
-    print("Second epoch")
-    unif_dcs.train(training_model, dataset, script_path + "/../weights/unif_dcs_weights", 1)
-
-    print("Trained results with 100")
-    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/unif-dcs", longer_code, longer_desc, 100)
+    print("Trained results with 200")
+    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/unif-dcs", longer_code, longer_desc, 200)
 

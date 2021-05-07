@@ -147,7 +147,7 @@ class ScuBERT_DCS(CodeSearchManager):
         bad_similarity = cos_model(
             [good_ids_desc, good_mask_desc, good_seg_desc, bad_ids_code, bad_mask_code, bad_seg_code])
 
-        hinge_loss_margin = 0.2
+        hinge_loss_margin = 0.6
         loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, hinge_loss_margin - x[0] + x[1]),
                                       output_shape=lambda x: x[0],
                                       name='loss')([good_similarity, bad_similarity])
@@ -159,7 +159,8 @@ class ScuBERT_DCS(CodeSearchManager):
             bad_ids_code, bad_mask_code, bad_seg_code], outputs=[loss],
             name='training_model')
 
-        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
+        opt = tf.keras.optimizers.Adam(learning_rate=0.000001)
+        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer=opt)
 
         return training_model, embedding_code_model, embedding_desc_model, dot_model
 
@@ -307,7 +308,7 @@ if __name__ == "__main__":
     vocab_desc = {y: x for x, y in vocabulary_desc.items()}
 
     dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
-                                   8, 0, 100000, 90, tokenizer, vocab_tokens, vocab_desc)
+                                   16, 0, 600000, 90, tokenizer, vocab_tokens, vocab_desc)
 
 
 
@@ -322,4 +323,4 @@ if __name__ == "__main__":
     scubert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-cubert", 100)
 
     print("Trained results with 1000")
-    scubert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-cubert", 1000)
+    scubert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-cubert", 200)
