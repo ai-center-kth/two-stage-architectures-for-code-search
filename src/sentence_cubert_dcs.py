@@ -308,7 +308,7 @@ if __name__ == "__main__":
     vocab_desc = {y: x for x, y in vocabulary_desc.items()}
 
     dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
-                                   16, 0, 600000, 90, tokenizer, vocab_tokens, vocab_desc)
+                                   8, 0, 300000, 90, tokenizer, vocab_tokens, vocab_desc)
 
 
 

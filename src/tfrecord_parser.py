@@ -46,11 +46,12 @@ class TFRecordParser():
         # Split camelcase
         string = re.sub('([A-Z][a-z]+)', r' \1', re.sub('([A-Z]+)', r' \1', string))
 
+        # remove non alphanumeric characters
+        string = re.sub("[^0-9a-zA-Z ]+", ' ', string)
+
         string = string.lower()
         string = string.strip()
 
-        # remove non alphanumeric characters
-        string = re.sub("[^0-9a-zA-Z ]+", ' ', string)
         return string
 
     @staticmethod
@@ -97,6 +98,9 @@ class TFRecordParser():
                 docstring_tokens = TFRecordParser.clean_str(docstring_tokens)
                 code_tokens = TFRecordParser.clean_str(code_tokens)
 
+                if len(docstring_tokens) == 0 or len(code_tokens) == 0:
+                    continue
+
                 tokenized_doc, doc_segment_id = TFRecordParser.tokenize(docstring_tokens)
                 tokenized_code, code_segment_id  = TFRecordParser.tokenize(code_tokens)
 
@@ -104,6 +108,12 @@ class TFRecordParser():
                 ramdom_example = data_shuffled.pop(0)
                 ramdom_example = json.loads(str(ramdom_example, encoding='utf-8'))
                 negative_description = " ".join(ramdom_example["docstring_tokens"])
+
+                negative_description = TFRecordParser.clean_str(negative_description)
+
+                if len(negative_description) == 0:
+                    continue
+
                 tokenized_negative, neg_segment_id = TFRecordParser.tokenize(negative_description)
 
                 # Create Example object with features
@@ -113,12 +123,15 @@ class TFRecordParser():
 
     @staticmethod
     def tokenize(string):
+        print(string)
+        print(len(string.split(" ")))
+        print(len(string))
         encoded = TFRecordParser.tokenizer.batch_encode_plus(
             [string],
-            add_special_tokens = True,
+            add_special_tokens = False,
             max_length = 90,
-            return_attention_mask = True,
-            return_token_type_ids = True,
+            return_attention_mask = False,
+            return_token_type_ids = False,
             padding = 'max_length',
             truncation = True,
             return_tensors = "np"

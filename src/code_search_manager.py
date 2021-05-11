@@ -3,7 +3,7 @@ import os
 from tqdm import tqdm
 import numpy as np
 import time
-import help
+from . import help
 import random
 
 class CodeSearchManager():

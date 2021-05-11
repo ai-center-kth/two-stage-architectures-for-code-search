@@ -174,7 +174,7 @@ if __name__ == "__main__":
 
     unif_dcs = UNIF_DCS(data_path, data_chunk_id)
 
-    BATCH_SIZE = 32 * 2
+    BATCH_SIZE = 32 * 4 * 2
 
     dataset = unif_dcs.load_dataset(0, BATCH_SIZE)
 
@@ -182,7 +182,7 @@ if __name__ == "__main__":
 
     embedding_size = 2048
 
-    multi_gpu = False
+    multi_gpu = True
 
     print("Building model and loading weights")
     if multi_gpu:
@@ -198,7 +198,6 @@ if __name__ == "__main__":
                                                                                      number_desc_tokens, longer_code,
                                                                                      longer_desc, 0.5)
         #unif_dcs.load_weights(training_model, script_path + "/../weights/unif_dcs_weights")
-
 
 
     print("Not trained results")

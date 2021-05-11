@@ -1,5 +1,3 @@
 
 
-from . import (
-    cubert
-)
+from .code_search_manager import CodeSearchManager

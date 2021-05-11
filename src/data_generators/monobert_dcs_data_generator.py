@@ -3,7 +3,7 @@ import tables
 import numpy as np
 import random
 
-class DataGeneratorDCSBERT(keras.utils.Sequence):
+class DataGeneratorDCSMonoBERT(keras.utils.Sequence):
     def __init__(self, tokens_path, desc_path, batch_size, init_pos, last_pos, max_length, tokenizer, vocab_code, vocab_desc):
         self.tokens_path = tokens_path
         self.desc_path = desc_path

@@ -1,28 +1,30 @@
 
 import subprocess
 import sys
+import random
 
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 
-subprocess.check_call([sys.executable, "-m", "pip", "install", "bert-tensorflow==1.0.1"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tf-hub-nightly"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "bert-tensorflow==1.0.1"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tf-hub-nightly"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
 
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
 import pathlib
 
 import tensorflow as tf
-import tensorflow_hub as hub
-
-from code_search_manager import CodeSearchManager
+import tqdm
 import numpy as np
-from help import *
-import random
+
 import transformers
+
+from . import CodeSearchManager, help
+from .data_generators.monobert_dcs_data_generator import DataGeneratorDCSMonoBERT
+
 
 class MONOBERT_DCS(CodeSearchManager):
 
@@ -47,14 +49,16 @@ class MONOBERT_DCS(CodeSearchManager):
 
         bert_output = bert_layer([input_word_ids, input_mask, segment_ids])
 
-        output = tf.keras.layers.Dense(1, activation="sigmoid")(bert_output[1])
+        output = tf.keras.layers.Dense(1, activation="sigmoid")(bert_output[0])
 
         model = tf.keras.models.Model(
             inputs=[input_word_ids, input_mask, segment_ids], outputs=output
         )
 
+        opt = tf.keras.optimizers.Adam(learning_rate=0.0001)
+
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(),
+            optimizer=opt,
             loss="binary_crossentropy",
             metrics=["acc"],
         )
@@ -73,8 +77,8 @@ def test(data_path):
 
     file_format = "h5"
 
-    test_tokens = load_hdf5(data_path + "test.tokens." + file_format, 0, 100)  # 1000000
-    test_desc = load_hdf5(data_path + "test.desc." + file_format, 0, 100)
+    test_tokens = help.load_hdf5(data_path + "test.tokens." + file_format, 0, 100)  # 1000000
+    test_desc = help.load_hdf5(data_path + "test.desc." + file_format, 0, 100)
 
     # In[ ]:
 
@@ -119,7 +123,7 @@ def test(data_path):
 
             # this means negative relation
 
-            if candidate_prediction[0] > best_result:
+            if candidate_prediction[0] >= best_result:
                 count = count + 1
 
         results[rowid] = count
@@ -152,39 +156,6 @@ def tokenize_sentences(input1_str, input2_str):
 
     return tokenized["input_ids"][0], tokenized["attention_mask"][0], tokenized["token_type_ids"][0]
 
-def generate_dataset():
-
-    retokenized_desc = []
-    retokenized_mask = []
-    retokenizedtype = []
-    labels = []
-
-    for idx, sentence in enumerate(train_desc):
-
-        desc = (" ".join([vocab_desc[x] for x in train_desc[idx]]))
-        code = (" ".join([vocab_tokens[x] for x in train_tokens[idx]]))
-
-        random_code = train_tokens[random.randint(0, len(train_tokens) - 1)]
-        neg_code = (" ".join([vocab_tokens[x] for x in random_code]))
-
-        input_ids, attention_mask, token_type_ids, = tokenize_sentences(desc, code)
-        if len(input_ids) != MAX_LEN:
-            continue
-        retokenized_desc.append(input_ids)
-        retokenized_mask.append(attention_mask)
-        retokenizedtype.append(token_type_ids)
-
-        labels.append([1])
-
-        input_ids_neg, attention_mask_neg, token_type_ids_neg, = tokenize_sentences(desc, neg_code)
-        if len(input_ids_neg) != MAX_LEN:
-            continue
-        retokenized_desc.append(input_ids_neg)
-        retokenized_mask.append(attention_mask_neg)
-        retokenizedtype.append(token_type_ids_neg)
-
-        labels.append([0])
-    return retokenized_desc, retokenized_mask, retokenizedtype, labels
 
 if __name__ == "__main__":
 
@@ -201,43 +172,22 @@ if __name__ == "__main__":
 
     file_format = "h5"
 
-    # 18223872 (len) #1000000
-    train_tokens = load_hdf5( data_path+"train.tokens."+file_format, 0, 10000) # 1000000
-    train_desc = load_hdf5( data_path+"train.desc."+file_format, 0, 10000)
-    # Negative sampling
-    train_bad_desc = load_hdf5( data_path+"train.desc."+file_format, 0, 10000)
-    random.shuffle(train_bad_desc)
-
-    vocabulary_tokens = load_pickle(data_path+"vocab.tokens.pkl")
+    vocabulary_tokens = help.load_pickle(data_path+"vocab.tokens.pkl")
     vocab_tokens = {y: x for x, y in vocabulary_tokens.items()}
 
-    vocabulary_desc = load_pickle(data_path+"vocab.desc.pkl")
+    vocabulary_desc = help.load_pickle(data_path+"vocab.desc.pkl")
     vocab_desc = {y: x for x, y in vocabulary_desc.items()}
 
-    code_vector = train_tokens
-    desc_vector = train_desc
-    bad_desc_vector = train_bad_desc
-
-    longer_code = max(len(t) for t in code_vector)
-    longer_desc = max(len(t) for t in desc_vector)
-
     longer_desc = 90
-
-    longer_sentence = max(longer_code, longer_desc)
-
-    code_vector = pad(code_vector, longer_code)
-    desc_vector = pad(desc_vector, longer_desc)
-    bad_desc_vector = pad(bad_desc_vector, longer_desc)
 
     number_desc_tokens = len(vocabulary_desc)
     number_code_tokens = len(vocabulary_tokens)
 
     MAX_LEN = 90
 
-
     bert_layer = transformers.TFBertModel.from_pretrained("bert-base-uncased")
     # Freeze the BERT model to reuse the pretrained features without modifying them.
-    bert_layer.trainable = False
+    bert_layer.trainable = True
     # bert_layer = bert_model(input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids)
     model = monobert.generate_model(bert_layer)
 
@@ -246,22 +196,26 @@ if __name__ == "__main__":
                 "bert-base-uncased", do_lower_case=True
             )
 
-    retokenized_desc, retokenized_mask, retokenizedtype, labels = generate_dataset()
+    #retokenized_desc, retokenized_mask, retokenizedtype, labels = generate_dataset()
 
-    labels = np.array(labels)
+    dataset = DataGeneratorDCSMonoBERT(data_path+"train.tokens."+file_format, data_path+"train.desc."+file_format,
+                                       8, 0, 600000, 90, tokenizer, vocab_tokens,vocab_desc)
 
-    model.fit(x=[np.array(retokenized_desc),
-                 np.array(retokenized_mask),
-                 np.array(retokenizedtype)],
-              y=labels, epochs=4, verbose=1, batch_size=15)
 
-    bert_layer.trainable = True
 
-    model.fit(x=[np.array(retokenized_desc),
-                 np.array(retokenized_mask),
-                 np.array(retokenizedtype)],
-              y=labels, epochs=2, verbose=1, batch_size=15)
+    #labels = np.array(labels)
 
-    model.save_weights(script_path+"/../weights/monobert_dcs_weights")
+    test(data_path)
+
+    model.fit(dataset, epochs=1, verbose=1, batch_size=None)
+
+
+
+    #model.fit(x=[np.array(retokenized_desc),
+                 #np.array(retokenized_mask),
+                 #             np.array(retokenizedtype)],
+    #          y=labels, epochs=2, verbose=1, batch_size=15)
+
+    #model.save_weights(script_path+"/../weights/monobert_dcs_weights")
 
     test(data_path)

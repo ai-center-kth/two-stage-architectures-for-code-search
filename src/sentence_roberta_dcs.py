@@ -12,9 +12,9 @@ import tensorflow as tf
 from tensorflow.keras import backend as K
 import pathlib
 import random
-from help import *
-from data_generators.sentence_bert_dcs_generator import DataGeneratorDCSBERT
-from code_search_manager import CodeSearchManager
+from .help import *
+from .data_generators.sentence_bert_dcs_generator import DataGeneratorDCSBERT
+from .code_search_manager import CodeSearchManager
 import transformers
 
 class SBERT_DCS(CodeSearchManager):
@@ -337,7 +337,7 @@ if __name__ == "__main__":
         #sbert_dcs.load_weights(training_model, script_path+"/../weights/sroberta_dcs_weights")
 
     #sbert_dcs.tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-uncased", do_lower_case=True)
-    sbert_dcs.tokenizer = tokenizer = transformers.RobertaTokenizer.from_pretrained('roberta-base', do_lower_case=True)
+    sbert_dcs.tokenizer = transformers.RobertaTokenizer.from_pretrained('roberta-base', do_lower_case=True)
 
 
     file_format = "h5"
@@ -351,7 +351,7 @@ if __name__ == "__main__":
     #dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)
 
     dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
-                                   16, 0, 600000, 90, tokenizer, vocab_tokens, vocab_desc)
+                                   16, 0, 600000, 90, sbert_dcs.tokenizer, vocab_tokens, vocab_desc)
 
 
     print("Not trained results")
