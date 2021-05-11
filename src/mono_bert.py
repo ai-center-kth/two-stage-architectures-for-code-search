@@ -17,7 +17,7 @@ import os
 import pathlib
 
 import tensorflow as tf
-import tqdm
+from tqdm import tqdm
 import numpy as np
 
 import transformers
