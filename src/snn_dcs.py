@@ -9,10 +9,11 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
+import numpy as np
 import pathlib
-from data_generators.dcs_data_generator import DataGeneratorDCS
-from help import *
-from code_search_manager import CodeSearchManager
+
+from .data_generators.dcs_data_generator import DataGeneratorDCS
+from . import CodeSearchManager, help
 
 class SNN_DCS(CodeSearchManager):
 
@@ -21,7 +22,7 @@ class SNN_DCS(CodeSearchManager):
 
         # dataset info
         self.total_length = 18223872
-        self.chunk_size = 100000  # 18223872  # 10000
+        self.chunk_size = 18223872  # 18223872  # 10000
 
 
         number_chunks = self.total_length / self.chunk_size - 1
@@ -35,9 +36,9 @@ class SNN_DCS(CodeSearchManager):
 
     def get_dataset_meta(self):
         # 18223872 (len) #1000000
-        code_vector = load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
-        desc_vector = load_hdf5(data_path + "train.desc.h5", 0, 18223872)
-        vocabulary_merged = load_pickle(data_path + "vocab.merged.pkl")
+        code_vector = help.load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
+        desc_vector = help.load_hdf5(data_path + "train.desc.h5", 0, 18223872)
+        vocabulary_merged = help.load_pickle(data_path + "vocab.merged.pkl")
 
         longer_code = max(len(t) for t in code_vector)
         print("longer_code", longer_code)
@@ -92,19 +93,21 @@ class SNN_DCS(CodeSearchManager):
         training_model = tf.keras.Model(inputs=[input_code, input_desc, input_bad_desc], outputs=[loss],
                                         name='training_model')
 
-        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer='adam')
+        opt = tf.keras.optimizers.Adam(learning_rate=0.0001)
+
+        training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer=opt)
         # y_true-y_true avoids warning
 
         return training_model, embedding_model, cos_model, dot_model
 
 
 
-    def test(self, embedding_model, dot_model, results_path, code_length, desc_length):
-        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, 100)
-        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, 100) # 10000
+    def test(self, embedding_model, dot_model, results_path, code_length, desc_length, number_of_elements=100):
+        test_tokens = help.load_hdf5(self.data_path + "test.tokens.h5" , 0, number_of_elements)
+        test_desc = help.load_hdf5(self.data_path + "test.desc.h5" , 0, number_of_elements) # 10000
 
-        test_tokens = pad(test_tokens, code_length)
-        test_desc = pad(test_desc, desc_length)
+        test_tokens = help.pad(test_tokens, code_length)
+        test_desc = help.pad(test_desc, desc_length)
 
         embedding_tokens = [None] * len(test_tokens)
         print("Embedding tokens...")
@@ -158,7 +161,7 @@ if __name__ == "__main__":
 
     snn_dcs = SNN_DCS(data_path, data_chunk_id)
 
-    BATCH_SIZE = 32 * 1
+    BATCH_SIZE = 32 * 4 * 2
 
     dataset = snn_dcs.load_dataset(0, BATCH_SIZE)
 
@@ -166,7 +169,7 @@ if __name__ == "__main__":
 
     embedding_size = 2048
 
-    multi_gpu = False
+    multi_gpu = True
 
     print("Building model and loading weights")
     if multi_gpu:
@@ -175,19 +178,17 @@ if __name__ == "__main__":
         strategy = tf.distribute.MirroredStrategy()
 
         with strategy.scope():
-            training_model, embedding_model, cos_model, dot_model = snn_dcs.generate_model(embedding_size, number_tokens, longer_sentence, 0.2)
+            training_model, embedding_model, cos_model, dot_model = snn_dcs.generate_model(embedding_size, number_tokens, longer_sentence, 0.5)
             #snn_dcs.load_weights(training_model, script_path+"/../weights/snn_dcs_weights")
     else:
         training_model, embedding_model, cos_model, dot_model = snn_dcs.generate_model(embedding_size, number_tokens,
-                                                                                       longer_sentence, 0.2)
+                                                                                       longer_sentence, 0.5)
         #snn_dcs.load_weights(training_model, script_path + "/../weights/snn_dcs_weights")
 
     snn_dcs.train(training_model, dataset, script_path+"/../weights/snn_dcs_weights")
 
-    snn_dcs.test(embedding_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence)
+    snn_dcs.test(embedding_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence, 100)
 
-    snn_dcs.train(training_model, dataset, script_path+"/../weights/snn_dcs_weights")
-
-    snn_dcs.test(embedding_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence)
+    snn_dcs.test(embedding_model, dot_model, script_path+"/../results", longer_sentence, longer_sentence, 200)
 
 
