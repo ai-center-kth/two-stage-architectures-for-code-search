@@ -1,22 +1,15 @@
 import subprocess
 import sys
-
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
-
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
-
-import os
-#os.environ["CUDA_VISIBLE_DEVICES"] = "1,3"
-
 import tensorflow as tf
 from tensorflow.keras import backend as K
 import pathlib
 import random
-from help import *
-from code_search_manager import CodeSearchManager
+import numpy as np
+from . import help
+from .code_search_manager import CodeSearchManager
 import transformers
-from data_generators.sentence_bert_dcs_generator import DataGeneratorDCSBERT
+from .data_generators.sentence_bert_dcs_generator import DataGeneratorDCSBERT
+
 
 class SBERT_DCS(CodeSearchManager):
 
@@ -42,9 +35,9 @@ class SBERT_DCS(CodeSearchManager):
 
     def get_dataset_meta(self):
         # 18223872 (len) #1000000
-        code_vector = load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
-        desc_vector = load_hdf5(data_path + "train.desc.h5", 0, 18223872)
-        vocabulary_merged = load_pickle(data_path + "vocab.merged.pkl")
+        code_vector = help.load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
+        desc_vector = help.load_hdf5(data_path + "train.desc.h5", 0, 18223872)
+        vocabulary_merged = help.load_pickle(data_path + "vocab.merged.pkl")
 
         longer_code = max(len(t) for t in code_vector)
         print("longer_code", longer_code)
@@ -189,8 +182,8 @@ class SBERT_DCS(CodeSearchManager):
 # snn_dcs_weights
 
     def test(self, model_code, model_query, dot_model, results_path, number_of_elements=100):
-        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, number_of_elements)
-        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, number_of_elements) # 10000
+        test_tokens = help.load_hdf5(self.data_path + "test.tokens.h5" , 0, number_of_elements)
+        test_desc = help.load_hdf5(self.data_path + "test.desc.h5" , 0, number_of_elements) # 10000
 
         code_test_vector = test_tokens
         desc_test_vector = test_desc
@@ -297,8 +290,8 @@ class SBERT_DCS(CodeSearchManager):
 
     def dummy_test(self, code_model, desc_model, dot_model):
 
-        test_tokens = load_hdf5(self.data_path + "train.tokens.h5" , 0, 1000)
-        test_desc = load_hdf5(self.data_path + "train.desc.h5" , 0, 1000) # 10000
+        test_tokens = help.load_hdf5(self.data_path + "train.tokens.h5" , 0, 1000)
+        test_desc = help.load_hdf5(self.data_path + "train.desc.h5" , 0, 1000) # 10000
 
         code_test_vector = test_tokens
         desc_test_vector = test_desc
@@ -442,10 +435,10 @@ if __name__ == "__main__":
 
     file_format = "h5"
 
-    vocabulary_tokens = load_pickle(data_path + "vocab.tokens.pkl")
+    vocabulary_tokens = help.load_pickle(data_path + "vocab.tokens.pkl")
     vocab_tokens = {y: x for x, y in vocabulary_tokens.items()}
 
-    vocabulary_desc = load_pickle(data_path + "vocab.desc.pkl")
+    vocabulary_desc = help.load_pickle(data_path + "vocab.desc.pkl")
     vocab_desc = {y: x for x, y in vocabulary_desc.items()}
 
     #dataset = sbert_dcs.load_dataset(train_desc, train_tokens, vocab_desc, vocab_tokens)

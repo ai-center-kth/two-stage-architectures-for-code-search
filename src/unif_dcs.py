@@ -1,19 +1,23 @@
 import subprocess
 import sys
 
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
+#subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
-import pathlib
-from data_generators.dcs_data_generator import DataGeneratorDCS
-import help
-from code_search_manager import CodeSearchManager
 import numpy as np
+import pandas as pd
+import pathlib
+
+
+from .data_generators.dcs_data_generator import DataGeneratorDCS
+from . import help
+from .code_search_manager import CodeSearchManager
+
 
 class UNIF_DCS(CodeSearchManager):
 
@@ -22,13 +26,18 @@ class UNIF_DCS(CodeSearchManager):
 
         # dataset info
         self.total_length = 18223872
-        self.chunk_size = 18223872   # 18223872  # 10000
+        self.chunk_size = 600000   # 18223872  # 10000
 
         number_chunks = self.total_length / self.chunk_size - 1
         self.number_chunks = int(number_chunks + 1 if number_chunks > int(number_chunks) else number_chunks)
 
         self.data_chunk_id = min(data_chunk_id, int(self.number_chunks))
         print("### Loading UNIF model with DCS chunk number " + str(data_chunk_id) + " [0," + str(number_chunks)+"]")
+
+        self.vocab_tokens, self.vocab_desc = None, None
+        self.inverse_vocab_tokens, self.inverse_vocab_desc = None, None
+
+        self.count = 0
 
     def get_dataset_meta_hardcoded(self):
         return 86, 410, 10001, 10001
@@ -50,6 +59,14 @@ class UNIF_DCS(CodeSearchManager):
 
         return longer_sentence, number_tokens
 
+    def get_vocabularies(self):
+        self.inverse_vocab_tokens = help.load_pickle(self.data_path + "vocab.tokens.pkl")
+        self.vocab_tokens = {y: x for x, y in self.inverse_vocab_tokens.items()}
+
+        self.inverse_vocab_desc = help.load_pickle(self.data_path + "vocab.desc.pkl")
+        self.vocab_desc = {y: x for x, y in self.inverse_vocab_desc.items()}
+
+        return self.vocab_tokens, self.vocab_desc
 
     def generate_model(self, embedding_size, number_code_tokens, number_desc_tokens, code_length, desc_length, hinge_loss_margin):
 
@@ -107,47 +124,98 @@ class UNIF_DCS(CodeSearchManager):
         training_model = tf.keras.Model(inputs=[code_input, good_desc_input, bad_desc_input], outputs=[loss],
                                         name='training_model')
 
-        opt = tf.keras.optimizers.Adam(learning_rate=0.0001)
+        opt = tf.keras.optimizers.Adam(learning_rate=0.001)
 
         training_model.compile(loss=lambda y_true, y_pred: y_pred + y_true - y_true, optimizer=opt)
         # y_true-y_true avoids warning
 
+        self.training_model, self.code_model, self.desc_model, self.dot_model = training_model, model_code, model_query, dot_model
         return training_model, model_code, model_query, dot_model
 
-
-
-    def test(self, model_code, model_query, dot_model, results_path, code_length, desc_length, number_of_elements=100):
+    def generate_embeddings(self, number_of_elements=100):
         test_tokens = help.load_hdf5(self.data_path + "test.tokens.h5" , 0, number_of_elements)
         test_desc = help.load_hdf5(self.data_path + "test.desc.h5" , 0, number_of_elements) # 10000
 
-        test_tokens = help.pad(test_tokens, code_length)
-        test_desc = help.pad(test_desc, desc_length)
+        longer_code, longer_desc, number_code_tokens, number_desc_tokens = self.get_dataset_meta_hardcoded()
 
-        embedding_tokens = [None] * len(test_tokens)
+        test_tokens = help.pad(test_tokens, longer_code)
+        test_desc = help.pad(test_desc, longer_desc)
+
+        embedded_tokens = []
+        embedded_desc = []
         print("Embedding tokens...")
-        for idx,token in enumerate(test_tokens):
+        for idx, token in enumerate(test_tokens):
 
-            embedding_result = model_code(np.array(token).reshape(1,-1))
-            embedding_tokens[idx] = embedding_result.numpy()[0]
+            embedded_tokens.append(self.code_model.predict(np.array(test_tokens[idx]).reshape(1,-1))[0])
+            embedded_desc.append(self.desc_model.predict(np.array(test_desc[idx]).reshape(1,-1))[0])
 
-        embedding_desc = [None] * len(test_desc)
-        print("Embedding descs...")
-        for idx,desc in enumerate(test_desc):
-
-            embedding_result = model_query(np.array(desc).reshape(1,-1))
-            embedding_desc[idx] = embedding_result.numpy()[0]
-
-        self.test_embedded(dot_model, embedding_tokens, embedding_desc, results_path)
+        return embedded_tokens, embedded_desc
 
 
-    def training_data_chunk(self, id, valid_perc):
+    def test(self, results_path, number_of_elements=100):
 
-        init_trainig = self.chunk_size * id
-        init_valid = int(self.chunk_size * id + self.chunk_size * valid_perc)
-        end_valid = int(self.chunk_size * id + self.chunk_size)
+        embedded_tokens, embedded_desc = self.generate_embeddings(number_of_elements)
+        self.test_embedded(embedded_tokens, embedded_desc, results_path)
 
-        return init_trainig, init_valid, end_valid
+        df = pd.read_csv(self.data_path + "descriptions.csv", header=0)
+        df = df.dropna()
+        df = df[df["rowid"] < number_of_elements]
 
+        self.rephrasing_test(df, embedded_tokens, embedded_desc)
+
+
+    def tokenize_desc(self, sentence):
+        tokenized = []
+
+        for word in sentence.split(" "):
+            if word in self.inverse_vocab_desc:
+                tokenized.append(self.inverse_vocab_desc[word])
+            else:
+                tokenized.append(self.inverse_vocab_desc["UNK"])
+                self.count += 1
+
+        return help.pad(np.array(tokenized).reshape((1,-1)), 410)
+
+
+
+    def rephrasing_test(self, rephrased_descriptions_df, embedded_tokens, embedded_desc):
+
+        rephrased_ranking = {}
+        new_ranking = {}
+        for i, row in enumerate(rephrased_descriptions_df.iterrows()):
+            idx = row[1].values[0]
+
+            original_desc = row[1].values[1]
+
+            embedded_tokens_copy = embedded_tokens.copy()
+            embedded_desc_copy = embedded_desc.copy()
+
+            original_rank = self.get_id_rank(idx, embedded_tokens_copy, embedded_desc_copy)
+
+            desc = row[1].values[2]
+
+            desc_ = self.tokenize_desc(desc)
+
+            embedded_desc_copy[idx] = self.desc_model.predict(np.array(desc_).reshape(1, -1))[0]
+
+
+            new_rank = self.get_id_rank(idx, embedded_tokens_copy, embedded_desc_copy)
+
+            rephrased_ranking[idx] = original_rank
+            new_ranking[idx] = new_rank
+
+        print("UNK", self.count)
+        print("Number of queries: ",str(len(rephrased_descriptions_df.index)))
+        print("Selected topN:")
+        print(self.get_top_n(1, rephrased_ranking))
+        print(self.get_top_n(3, rephrased_ranking))
+        print(self.get_top_n(5, rephrased_ranking))
+
+        print("Rephrased topN:")
+        print(self.get_top_n(1, new_ranking))
+        print(self.get_top_n(3, new_ranking))
+        print(self.get_top_n(5, new_ranking))
+        return rephrased_ranking, new_ranking
 
     def load_dataset(self, data_chunk_id, batch_size):
 
@@ -158,6 +226,7 @@ class UNIF_DCS(CodeSearchManager):
         training_set_generator = DataGeneratorDCS(self.data_path + "train.tokens.h5", self.data_path + "train.desc.h5",
                                                   batch_size, init_trainig, init_valid, longer_code, longer_desc)
         return training_set_generator
+
 
 if __name__ == "__main__":
 
@@ -182,7 +251,7 @@ if __name__ == "__main__":
 
     embedding_size = 2048
 
-    multi_gpu = True
+    multi_gpu = False
 
     print("Building model and loading weights")
     if multi_gpu:
@@ -192,23 +261,23 @@ if __name__ == "__main__":
 
         with strategy.scope():
             training_model, model_code, model_query, dot_model = unif_dcs.generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
-            #unif_dcs.load_weights(training_model, script_path+"/../weights/unif_dcs_weights")
+            unif_dcs.load_weights(script_path+"/../final_weights/unif_dcs_weights")
     else:
         training_model, model_code, model_query, dot_model = unif_dcs.generate_model(embedding_size, number_code_tokens,
                                                                                      number_desc_tokens, longer_code,
-                                                                                     longer_desc, 0.5)
-        #unif_dcs.load_weights(training_model, script_path + "/../weights/unif_dcs_weights")
+                                                                                     longer_desc, 0.6)
+        unif_dcs.load_weights(script_path + "/../final_weights/unif_dcs_weights")
 
+    unif_dcs.get_vocabularies()
+    #print("Not trained results")
+    #unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/unif-dcs", longer_code, longer_desc, 100)
 
-    print("Not trained results")
-    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/unif-dcs", longer_code, longer_desc, 100)
-
-    print("First epoch")
-    unif_dcs.train(training_model, dataset, script_path+"/../weights/unif_dcs_weights", 1)
+    #print("First epoch")
+    #unif_dcs.train(training_model, dataset, script_path+"/../weights/unif_dcs_weights", 1)
 
     print("Trained results with 100")
-    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sunif-dcs", longer_code, longer_desc, 100)
+    unif_dcs.test(script_path+"/../results/sunif-dcs", 100)
 
-    print("Trained results with 200")
-    unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/unif-dcs", longer_code, longer_desc, 200)
+    #print("Trained results with 200")
+    #unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/unif-dcs", longer_code, longer_desc, 200)
 

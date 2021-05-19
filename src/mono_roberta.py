@@ -1,24 +1,13 @@
 
-import subprocess
 import sys
-
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
-
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
-
-
-import os
-#os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
-
 import pathlib
-
 import tensorflow as tf
-
-from code_search_manager import CodeSearchManager
-from help import *
+from .code_search_manager import CodeSearchManager
+from . import help
+import tqdm
 import random
 import transformers
+import numpy as np
 
 class MONOBERT_DCS(CodeSearchManager):
 
@@ -69,8 +58,8 @@ def test(data_path):
 
     file_format = "h5"
 
-    test_tokens = load_hdf5(data_path + "test.tokens." + file_format, 0, 100)  # 1000000
-    test_desc = load_hdf5(data_path + "test.desc." + file_format, 0, 100)
+    test_tokens = help.load_hdf5(data_path + "test.tokens." + file_format, 0, 100)  # 1000000
+    test_desc = help.load_hdf5(data_path + "test.desc." + file_format, 0, 100)
 
     # In[ ]:
 
@@ -198,16 +187,16 @@ if __name__ == "__main__":
     file_format = "h5"
 
     # 18223872 (len) #1000000
-    train_tokens = load_hdf5( data_path+"train.tokens."+file_format, 0, 50000) # 1000000
-    train_desc = load_hdf5( data_path+"train.desc."+file_format, 0, 50000)
+    train_tokens = help.load_hdf5( data_path+"train.tokens."+file_format, 0, 50000) # 1000000
+    train_desc = help.load_hdf5( data_path+"train.desc."+file_format, 0, 50000)
     # Negative sampling
-    train_bad_desc = load_hdf5( data_path+"train.desc."+file_format, 0, 50000)
+    train_bad_desc = help.load_hdf5( data_path+"train.desc."+file_format, 0, 50000)
     random.shuffle(train_bad_desc)
 
-    vocabulary_tokens = load_pickle(data_path+"vocab.tokens.pkl")
+    vocabulary_tokens = help.load_pickle(data_path+"vocab.tokens.pkl")
     vocab_tokens = {y: x for x, y in vocabulary_tokens.items()}
 
-    vocabulary_desc = load_pickle(data_path+"vocab.desc.pkl")
+    vocabulary_desc = help.load_pickle(data_path+"vocab.desc.pkl")
     vocab_desc = {y: x for x, y in vocabulary_desc.items()}
 
     code_vector = train_tokens
@@ -221,9 +210,9 @@ if __name__ == "__main__":
 
     longer_sentence = max(longer_code, longer_desc)
 
-    code_vector = pad(code_vector, longer_code)
-    desc_vector = pad(desc_vector, longer_desc)
-    bad_desc_vector = pad(bad_desc_vector, longer_desc)
+    code_vector = help.pad(code_vector, longer_code)
+    desc_vector = help.pad(desc_vector, longer_desc)
+    bad_desc_vector = help.pad(bad_desc_vector, longer_desc)
 
     number_desc_tokens = len(vocabulary_desc)
     number_code_tokens = len(vocabulary_tokens)

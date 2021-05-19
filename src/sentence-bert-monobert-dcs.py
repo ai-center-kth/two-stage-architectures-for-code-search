@@ -1,29 +1,17 @@
 
-import subprocess
 import sys
-
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
-
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "bert-tensorflow==1.0.1"])
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "tf-hub-nightly"])
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
-
-
 import pathlib
 import tensorflow as tf
 import tensorflow_hub as hub
-from bert.tokenization import FullTokenizer
-
-from code_search_manager import CodeSearchManager
 import numpy as np
-from help import *
 import random
 
 import transformers
+from . import help
+from .code_search_manager import CodeSearchManager
+from .mono_bert import MONOBERT_DCS
+from .sentence_bert_dcs import SBERT_DCS
 
-from mono_bert import MONOBERT_DCS
-from sentence_bert_dcs import SBERT_DCS
 
 class SBERT_MONOBERT_DCS(CodeSearchManager):
 

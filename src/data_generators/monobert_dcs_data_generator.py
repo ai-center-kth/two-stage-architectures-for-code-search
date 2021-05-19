@@ -88,20 +88,16 @@ class DataGeneratorDCSMonoBERT(keras.utils.Sequence):
     def len(self):
         return self.__len__()
 
-    def encode_sentence(self, s):
-        tokens = list(self.tokenizer.tokenize(s))
-        tokens.append('[SEP]')
-        return self.tokenizer.convert_tokens_to_ids(tokens)
-
     def tokenize_sentences(self, input1_str, input2_str):
-        input1_encoded = self.encode_sentence(input1_str)
-        input2_encoded = self.encode_sentence(input2_str)
-        cls_ = self.tokenizer.convert_tokens_to_ids(['[CLS]'])
-        concated = cls_ + input1_encoded + input2_encoded
-        concated_ids = concated + [0] * ((self.max_length) - len(concated))
+        # return concated_ids, masks, type_ids
+        tokenized = self.tokenizer.batch_encode_plus(
+            [[input1_str, input2_str]],
+            add_special_tokens=True,
+            max_length=90,
+            return_attention_mask=True,
+            return_token_type_ids=True,
+            pad_to_max_length=True,
+            return_tensors="np",
+        )
 
-        masks = [1] * len(concated) + [0] * ((self.max_length) - len(concated))
-        type_ids = [0] + [0] * len(input1_encoded) + [1] * len(input2_encoded) + [0] * (
-                    (self.max_length) - (1 + len(input1_encoded) + len(input2_encoded)))
-
-        return concated_ids, masks, type_ids
+        return tokenized["input_ids"][0], tokenized["attention_mask"][0], tokenized["token_type_ids"][0]

@@ -1,32 +1,23 @@
-import subprocess
 import sys
-
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
-#subprocess.check_call([sys.executable, "-m", "pip", "install", "pickle5"])
-
-
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
-
-# import pickle5 as pickle
+import os.path
 import tensorflow as tf
 from tensorflow.keras import backend as K
-
-import os.path
 import time
 import pathlib
+import tqdm
+import numpy as np
 
-from data_generators.dcs_data_generator import DataGeneratorDCS
-from help import *
+from .data_generators.dcs_data_generator import DataGeneratorDCS
+from . import help
 
 
 def get_dataset_meta():
     # 18223872 (len) #1000000
-    code_vector = load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
-    desc_vector = load_hdf5(data_path + "train.desc.h5", 0, 18223872)
-    vocabulary_desc = load_pickle(data_path + "vocab.desc.pkl")
-    vocabulary_tokens = load_pickle(data_path + "vocab.tokens.pkl")
+    code_vector = help.load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
+    desc_vector = help.load_hdf5(data_path + "train.desc.h5", 0, 18223872)
+    vocabulary_desc = help.load_pickle(data_path + "vocab.desc.pkl")
+    vocabulary_tokens = help.load_pickle(data_path + "vocab.tokens.pkl")
 
     longer_code = max(len(t) for t in code_vector)
     longer_desc = max(len(t) for t in desc_vector)
@@ -148,11 +139,11 @@ def train(trainig_model, training_set_generator, valid_set_generator, weights_pa
 
 
 def test(data_path, model_code, model_query, cos_model, dot_model, results_path, code_length, desc_length, batch_id):
-    test_tokens = load_hdf5(data_path + "test.tokens.h5" , 0, 50)
-    test_desc = load_hdf5(data_path + "test.desc.h5" , 0, 50) #10000
+    test_tokens = help.load_hdf5(data_path + "test.tokens.h5" , 0, 50)
+    test_desc = help.load_hdf5(data_path + "test.desc.h5" , 0, 50) #10000
 
-    test_tokens = pad(test_tokens, code_length)
-    test_desc = pad(test_desc, desc_length)
+    test_tokens = help.pad(test_tokens, code_length)
+    test_desc = help.pad(test_desc, desc_length)
 
 
 

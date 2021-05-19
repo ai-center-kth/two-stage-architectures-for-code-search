@@ -3,10 +3,15 @@ import os
 from tqdm import tqdm
 import numpy as np
 import time
-from . import help
 import random
+from . import help
 
 class CodeSearchManager():
+
+    def __init__(self):
+        self.training_model, self.code_model = None, None
+        self.desc_model, self.dot_model = None, None
+        self.chunk_size = 600000
 
     def get_dataset_meta(self):
         raise NotImplementedError(self)
@@ -17,12 +22,23 @@ class CodeSearchManager():
     def generate_model(self):
         raise NotImplementedError()
 
-    def load_weights(self, model, path):
+    def tokenize(self, sentence):
+        raise NotImplementedError()
+
+    def load_weights(self, path):
         if os.path.isfile(path + '.index'):
-            model.load_weights(path)
+            self.training_model.load_weights(path)
             print("Weights loaded!")
         else:
             print("Warning! No weights loaded!")
+
+    def training_data_chunk(self, id, valid_perc=1.0):
+
+        init_trainig = self.chunk_size * id
+        init_valid = int(self.chunk_size * id + self.chunk_size * valid_perc)
+        end_valid = int(self.chunk_size * id + self.chunk_size)
+
+        return init_trainig, init_valid, end_valid
 
     def get_top_n(self, n, results):
         count = 0
@@ -31,33 +47,39 @@ class CodeSearchManager():
                 count += 1
         return count / len(results)
 
-    def train(self, trainig_model, training_set_generator, weights_path, epochs=1):
-        trainig_model.fit(training_set_generator, epochs=epochs)
-        trainig_model.save_weights(weights_path)
+    def train(self, training_set, weights_path, epochs=1, batch_size=None):
+        self.training_model.fit(training_set, epochs=epochs, verbose=1, batch_size=batch_size)
+        self.training_model.save_weights(weights_path)
         print("Model saved!")
 
-    def test_embedded(self, dot_model, embedded_tokens, embedded_desc, results_path):
+
+    def get_id_rank(self, rowid, embedded_tokens, embedded_desc):
+
+        # Get the similarity with the ground truth
+        expected_best_result = \
+        self.dot_model.predict([embedded_tokens[rowid].reshape((1, -1)), embedded_desc[rowid].reshape((1, -1))])[0][0]
+
+        # Now we compare this desc with the rest of the code snippets
+        # Remove this description row from the list of code embeddings
+        deleted_tokens = np.delete(embedded_tokens, rowid, 0)
+
+        # Create array same length as the rest of code embeddings only containing this description
+        tiled_desc = np.tile(embedded_desc[rowid], (deleted_tokens.shape[0], 1))
+
+        # Similarity between this description and the rest of code embeddings
+        prediction = self.dot_model.predict([deleted_tokens, tiled_desc], batch_size=32 * 4)
+
+        return len(prediction[prediction >= expected_best_result])
+
+
+    def test_embedded(self, embedded_tokens, embedded_desc, results_path):
 
         results = {}
         pbar = tqdm(total=len(embedded_desc))
 
         for rowid, desc in enumerate(embedded_desc):
 
-            # Get the similarity with the ground truth
-            expected_best_result = dot_model.predict([embedded_tokens[rowid].reshape((1, -1)), embedded_desc[rowid].reshape((1, -1))])[0][0]
-
-            # Now we compare this desc with the rest of the code snippets
-            # Remove this description row from the list of code embeddings
-            deleted_tokens = np.delete(embedded_tokens, rowid, 0)
-
-            # Create array same length as the rest of code embeddings only containing this description
-            tiled_desc = np.tile(desc, (deleted_tokens.shape[0], 1))
-
-            # Similarity between this description and the rest of code embeddings
-            prediction = dot_model.predict([deleted_tokens, tiled_desc], batch_size=32 * 4)
-
-            # Store the number of predictions with better performance
-            results[rowid] = len(prediction[prediction >= expected_best_result])
+            results[rowid] = self.get_id_rank(rowid, embedded_tokens, embedded_desc)
 
             pbar.update(1)
         pbar.close()
@@ -82,6 +104,48 @@ class CodeSearchManager():
 
         help.save_pickle(results_path + time.strftime("%Y%m%d-%H%M%S")+ "-rankings" + ".pkl", results)
 
+    def rephrasing_test(self, rephrased_descriptions_df, embedded_tokens, embedded_desc):
+
+        rephrased_ranking = {}
+        new_ranking = {}
+        for i, row in enumerate(rephrased_descriptions_df.iterrows()):
+            idx = row[1].values[0]
+
+            original_desc = row[1].values[1]
+
+            embedded_tokens_copy = embedded_tokens.copy()
+            embedded_desc_copy = embedded_desc.copy()
+
+            original_rank = self.get_id_rank(idx, embedded_tokens_copy, embedded_desc_copy)
+
+            desc = row[1].values[2]
+
+            desc_ = self.tokenize(desc)
+
+            embedded_desc_copy[idx] = (self.desc_model.predict([np.array(desc_[0]).reshape((1, -1)),
+                                                            np.array(desc_[1]).reshape((1, -1)),
+                                                            np.array(desc_[2]).reshape((1, -1))
+
+                                                            ])[0])
+
+            new_rank = self.get_id_rank(idx, embedded_tokens_copy, embedded_desc_copy)
+
+            rephrased_ranking[idx] = original_rank
+            new_ranking[idx] = new_rank
+
+        print("Number of queries: ",str(len(rephrased_descriptions_df.index)))
+        print("Selected topN:")
+        print(self.get_top_n(1, rephrased_ranking))
+        print(self.get_top_n(3, rephrased_ranking))
+        print(self.get_top_n(5, rephrased_ranking))
+
+        print("Rephrased topN:")
+        print(self.get_top_n(1, new_ranking))
+        print(self.get_top_n(3, new_ranking))
+        print(self.get_top_n(5, new_ranking))
+        return rephrased_ranking, new_ranking
+
+    def generate_similarity_examples(self, embedded_tokens, embedded_desc, dot_model, results_path):
         f = open(results_path + time.strftime("%Y%m%d-%H%M%S")+ "-similarities" + ".csv", "a")
         f.write("match,similarity\n")
 

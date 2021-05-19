@@ -1,12 +1,5 @@
-import subprocess
+
 import sys
-
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
-
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
-
 import tensorflow as tf
 from tensorflow.keras import backend as K
 import numpy as np
@@ -14,6 +7,7 @@ import pathlib
 
 from .data_generators.dcs_data_generator import DataGeneratorDCS
 from . import CodeSearchManager, help
+
 
 class SNN_DCS(CodeSearchManager):
 

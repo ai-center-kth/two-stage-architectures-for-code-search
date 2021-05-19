@@ -12,6 +12,7 @@ import tables
 from tqdm import tqdm
 import numpy as np
 
+
 def load_hdf5(vecfile, start_offset, chunk_size):
     """reads training sentences(list of int array) from a hdf5 file"""
     table = tables.open_file(vecfile)

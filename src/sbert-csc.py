@@ -1,17 +1,9 @@
 
-import subprocess
-import sys
-
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tables"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
-subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
-
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 import os.path
 import time
 import pathlib
-from tfrecord_parser import TFRecordParser
+from .tfrecord_parser import TFRecordParser
 from pathlib import Path
 from tqdm import tqdm
 import tensorflow as tf

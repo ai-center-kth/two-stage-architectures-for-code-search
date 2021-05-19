@@ -19,8 +19,6 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
         self.code_index = code_table.get_node('/indices')[:]
         self.full_data_len = self.code_index.shape[0]
 
-        #self.full_data_len = 100 #100000
-
         # desc
         desc_table = tables.open_file(desc_path)
         self.desc_data = desc_table.get_node('/phrases')[:].astype(np.int)
@@ -74,9 +72,9 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
             extracted_neg_code = self.code_data[pos:pos + len_].copy()
             neg_code = ((" ".join([self.vocab_code[x] for x in extracted_neg_code])))
 
-            desc_ = self.tokenize_sentences(desc, "")
-            code_ = self.tokenize_sentences(code, "")
-            neg_ = self.tokenize_sentences(neg_code, "")
+            desc_ = self.__tokenize(desc)
+            code_ = self.__tokenize(code)
+            neg_ = self.__tokenize(neg_code)
 
             retokenized_desc.append(desc_[0])
             retokenized_mask_desc.append(desc_[1])
@@ -98,18 +96,18 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
                 np.array(bad_retokenized_code), np.array(bad_retokenized_mask_code), np.array(bad_retokenized_type_code),
                 ], np.array(labels)
 
-
-    def test(self, idx):
-        return self.__getitem__(idx)
-
     def len(self):
         return self.__len__()
 
-    def tokenize_sentences(self, input1_str, input2_str):
-        tokenized = self.tokenizer.batch_encode_plus(
-            [input1_str],
+    def __tokenize(self, input_str):
+        return DataGeneratorDCSBERT.tokenize_sentences(self.tokenizer, self.max_length, input_str)
+
+    @staticmethod
+    def tokenize_sentences(tokenizer, max_length, input_str):
+        tokenized = tokenizer.batch_encode_plus(
+            [input_str],
             add_special_tokens=True,
-            max_length=self.max_length,
+            max_length=max_length,
             return_attention_mask=True,
             return_token_type_ids=True,
             pad_to_max_length=True,

@@ -5,19 +5,21 @@
 #subprocess.check_call([sys.executable, "-m", "pip", "install", "tf-hub-nightly"])
 
 #subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
-
+import sys
 import os
 #os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
 import pathlib
-from help import *
-from data_generators.sentence_bert_dcs_generator import DataGeneratorDCSBERT
-from code_search_manager import CodeSearchManager
+import numpy as np
 from transformers.models.bert import convert_bert_original_tf_checkpoint_to_pytorch
 from transformers import BertConfig, TFBertModel
-from cubert.cubert_hug_tokenizer import CuBertHugTokenizer
+
+from . import help
+from .data_generators.sentence_bert_dcs_generator import DataGeneratorDCSBERT
+from .code_search_manager import CodeSearchManager
+from .cubert.cubert_hug_tokenizer import CuBertHugTokenizer
 
 class ScuBERT_DCS(CodeSearchManager):
 
@@ -43,9 +45,9 @@ class ScuBERT_DCS(CodeSearchManager):
 
     def get_dataset_meta(self):
         # 18223872 (len) #1000000
-        code_vector = load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
-        desc_vector = load_hdf5(data_path + "train.desc.h5", 0, 18223872)
-        vocabulary_merged = load_pickle(data_path + "vocab.merged.pkl")
+        code_vector = help.load_hdf5(data_path + "train.tokens.h5", 0, 18223872)
+        desc_vector = help.load_hdf5(data_path + "train.desc.h5", 0, 18223872)
+        vocabulary_merged = help.load_pickle(data_path + "vocab.merged.pkl")
 
         longer_code = max(len(t) for t in code_vector)
         print("longer_code", longer_code)
@@ -61,6 +63,17 @@ class ScuBERT_DCS(CodeSearchManager):
 
     def generate_model(self, bert_layer):
 
+        def mean_pooling(model_output, attention_mask):
+            token_embeddings = model_output[0]  # First element of model_output contains all token embeddings
+
+            input_mask_expanded = tf.repeat(tf.expand_dims(attention_mask, -1), token_embeddings.shape[-1], axis=-1)
+            input_mask_expanded = tf.dtypes.cast(input_mask_expanded, tf.float32)
+            sum_embeddings = tf.math.reduce_sum(token_embeddings * input_mask_expanded, 1)
+
+            sum_mask = tf.keras.backend.clip(tf.math.reduce_sum(input_mask_expanded, 1), min_value=0, max_value=1000000)
+
+            return sum_embeddings / sum_mask
+
         input_word_ids_desc = tf.keras.layers.Input(shape=(self.max_len,),
                                                     dtype=tf.int32,
                                                     name="input_word_ids_desc")
@@ -73,8 +86,8 @@ class ScuBERT_DCS(CodeSearchManager):
 
         bert_desc_output = bert_layer([input_word_ids_desc, input_mask_desc, segment_ids_desc])
 
-
-        desc_output = tf.reduce_mean(bert_desc_output[0], 1)
+        desc_output = tf.keras.layers.Lambda(lambda x: mean_pooling(x[0], x[1]))([bert_desc_output[0], input_mask_desc])
+        #desc_output = tf.reduce_mean(bert_desc_output[0], 1)
 
         input_word_ids_code = tf.keras.layers.Input(shape=(self.max_len,),
                                                     dtype=tf.int32,
@@ -88,7 +101,8 @@ class ScuBERT_DCS(CodeSearchManager):
 
         bert_code_output = bert_layer([input_word_ids_code, input_mask_code, segment_ids_code])
 
-        code_output = tf.reduce_mean(bert_code_output[0], 1)
+        code_output = tf.keras.layers.Lambda(lambda x: mean_pooling(x[0], x[1]))([bert_code_output[0], input_mask_code])
+        #code_output = tf.reduce_mean(bert_code_output[0], 1)
 
         similarity = tf.keras.layers.Dot(axes=1, normalize=True)([desc_output, code_output])
 
@@ -179,8 +193,8 @@ class ScuBERT_DCS(CodeSearchManager):
         return tokenized["input_ids"][0], tokenized["attention_mask"][0], tokenized["token_type_ids"][0]
 
     def test(self, model_code, model_query, dot_model, results_path, number_of_elements=100):
-        test_tokens = load_hdf5(self.data_path + "test.tokens.h5" , 0, number_of_elements)
-        test_desc = load_hdf5(self.data_path + "test.desc.h5" , 0, number_of_elements) # 10000
+        test_tokens = help.load_hdf5(self.data_path + "test.tokens.h5" , 0, number_of_elements)
+        test_desc = help.load_hdf5(self.data_path + "test.desc.h5" , 0, number_of_elements) # 10000
 
         code_test_vector = test_tokens
         desc_test_vector = test_desc
@@ -254,19 +268,7 @@ if __name__ == "__main__":
 
     scubert_dcs = ScuBERT_DCS(data_path, data_chunk_id)
 
-    BATCH_SIZE = 32 * 1
-
-    #bert_layer = hub.KerasLayer("https://tfhub.dev/tensorflow/bert_en_uncased_L-12_H-768_A-12/1",
-    #                            trainable=False)
-    # Some verion incompatibility requires this line
-    #tf.gfile = tf.io.gfile
-
-    # Get bert tokenizer
-    #bert_layer.resolved_object.vocab_file.asset_path.numpy()
-    #vocab_file = bert_layer.resolved_object.vocab_file.asset_path.numpy()
-    #do_lower_case = bert_layer.resolved_object.do_lower_case.numpy()
-    #tokenizer = FullTokenizer(vocab_file, do_lower_case)
-    #sbert_dcs.tokenizer = tokenizer
+    BATCH_SIZE = 32 * 2
 
     multi_gpu = False
 
@@ -301,15 +303,14 @@ if __name__ == "__main__":
     #train_tokens = load_hdf5(data_path + "train.tokens." + file_format, 0, 18223872)  # 1000000
     #train_desc = load_hdf5(data_path + "train.desc." + file_format, 0, 18223872)
 
-    vocabulary_tokens = load_pickle(data_path + "vocab.tokens.pkl")
+    vocabulary_tokens = help.load_pickle(data_path + "vocab.tokens.pkl")
     vocab_tokens = {y: x for x, y in vocabulary_tokens.items()}
 
-    vocabulary_desc = load_pickle(data_path + "vocab.desc.pkl")
+    vocabulary_desc = help.load_pickle(data_path + "vocab.desc.pkl")
     vocab_desc = {y: x for x, y in vocabulary_desc.items()}
 
     dataset = DataGeneratorDCSBERT(data_path + "train.tokens." + file_format, data_path + "train.desc." + file_format,
-                                   8, 0, 300000, 90, tokenizer, vocab_tokens, vocab_desc)
-
+                                   8, 0, 600000, 90, tokenizer, vocab_tokens, vocab_desc)
 
 
     print("Not trained results")
@@ -322,5 +323,5 @@ if __name__ == "__main__":
     print("Trained results with 100")
     scubert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-cubert", 100)
 
-    print("Trained results with 1000")
-    scubert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-cubert", 200)
+    #print("Trained results with 1000")
+    #scubert_dcs.test(model_code, model_query, dot_model, script_path+"/../results/sentence-cubert", 200)
