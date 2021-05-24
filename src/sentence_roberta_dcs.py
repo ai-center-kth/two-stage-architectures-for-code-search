@@ -23,7 +23,7 @@ class SBERT_DCS(CodeSearchManager):
         self.max_len = 90
         # dataset info
         self.total_length = 18223872
-        self.chunk_size = 600000   # 18223872  # 10000
+        self.chunk_size = 18223872   # 18223872  # 10000
 
         self.vocab_desc = None
         self.vocab_code = None
@@ -101,8 +101,8 @@ class SBERT_DCS(CodeSearchManager):
 
         bert_desc_output = self.bert_layer([input_word_ids_desc, input_mask_desc, segment_ids_desc])
 
-        desc_output = tf.keras.layers.Lambda(lambda x: mean_pooling(x[0], x[1]), name="desc_pooling")([bert_desc_output[0], input_mask_desc])
-        #desc_output = tf.reduce_mean(bert_desc_output[0], 1, name="desc_pooling")
+        desc_output = tf.keras.layers.Lambda(lambda x: mean_pooling(x[0], x[1]), name="desc_pooling")([bert_desc_output, input_mask_desc])
+        #desc_output = tf.reduce_mean(bert_desc_output, 1, name="desc_pooling")
 
         input_word_ids_code = tf.keras.layers.Input(shape=(self.max_len,),
                                                     dtype=tf.int32,
@@ -117,8 +117,8 @@ class SBERT_DCS(CodeSearchManager):
         bert_code_output = self.bert_layer([input_word_ids_code, input_mask_code, segment_ids_code])
 
         code_output = tf.keras.layers.Lambda(lambda x: mean_pooling(x[0], x[1]), name="code_pooling")(
-            [bert_code_output[0], input_mask_code])
-        #code_output = tf.reduce_mean(bert_code_output[0], 1, name="code_pooling")
+            [bert_code_output, input_mask_code])
+        #code_output = tf.reduce_mean(bert_code_output, 1, name="code_pooling")
 
         similarity = tf.keras.layers.Dot(axes=1, normalize=True)([desc_output, code_output])
 
@@ -213,6 +213,12 @@ class SBERT_DCS(CodeSearchManager):
             desc_ = self.tokenize(desc)
             code_ = self.tokenize(code)
 
+            result = self.code_model.predict([np.array(code_[0]).reshape((1, -1)),
+                                     np.array(code_[1]).reshape((1, -1)),
+                                     np.array(code_[2]).reshape((1, -1))
+
+                                     ])
+
 
             embedded_tokens.append(self.code_model.predict([np.array(code_[0]).reshape((1, -1)),
                                                        np.array(code_[1]).reshape((1, -1)),
@@ -244,10 +250,10 @@ class SBERT_DCS(CodeSearchManager):
     def tokenize(self, input_str):
         return DataGeneratorDCSBERT.tokenize_sentences(self.tokenizer, 90, input_str)
 
-    def load_dataset(self):
+    def load_dataset(self, batch_size=32):
         init_trainig, init_valid, end_valid = self.training_data_chunk(data_chunk_id)
         return DataGeneratorDCSBERT(self.data_path + "train.tokens.h5", self.data_path + "train.desc.h5",
-                             8, init_trainig, init_valid, 90, self.tokenizer, self.vocab_tokens, self.vocab_desc)
+                             batch_size, init_trainig, init_valid, 90, self.tokenizer, self.vocab_tokens, self.vocab_desc)
 
 
 if __name__ == "__main__":
@@ -288,17 +294,19 @@ if __name__ == "__main__":
 
     sbert_dcs.get_vocabularies()
 
-    dataset = sbert_dcs.load_dataset()
+    dataset = sbert_dcs.load_dataset(BATCH_SIZE)
 
     print("Not trained results")
-    sbert_dcs.test(script_path+"/../results/sentence-roberta", 100)
+
+    #sbert_dcs.test(script_path+"/../results/sentence-roberta", 100)
+
 
     sbert_dcs.bert_layer.trainable = True
 
-    #sbert_dcs.train(training_model, dataset, script_path+"/../weights/sroberta_dcs_weights", 1)
+    sbert_dcs.train(dataset, script_path+"/../weights/sroberta_dcs_weights", 1)
 
-    print("Trained results with 100")
-    #sbert_dcs.test(model_code, desc_model, dot_model, script_path+"/../results/sentence-roberta", 100)
+    #print("Trained results with 100")
+    #sbert_dcs.test(script_path+"/../results/sentence-roberta", 500)
 
     #print("Trained results with 1000")
     #sbert_dcs.test(model_code, desc_model, dot_model, script_path+"/../results/sentence-roberta", 200)
