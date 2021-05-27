@@ -257,7 +257,7 @@ class SBERT_DCS(CodeSearchManager):
     def load_dataset(self, batch_size=32):
 
         # ds output is (desc, code, neg_code) strings
-        ds = data_generator.get_dcs_dataset(self.data_path + "train.tokens.h5", self.data_path + "train.desc.h5",
+        ds = data_generator.get_dcs_dataset(self.data_path + "train.desc.h5", self.data_path + "train.tokens.h5",
                                             self.vocab_desc, self.vocab_tokens, max_len=self.chunk_size)
 
         # Tokenize the dataset

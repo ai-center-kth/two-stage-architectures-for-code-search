@@ -167,7 +167,7 @@ class mono_bert_tokenizer_map():
         pos_ids = tf.squeeze(tf.slice(pos_tokenized, [0, 0], [1, self.max_len]), [0])
         pos_attention = tf.squeeze(tf.slice(pos_tokenized, [1, 0], [1, self.max_len]), [0])
         pos_type = tf.squeeze(tf.slice(pos_tokenized, [2, 0], [1, self.max_len]), [0])
-        post_label = tf.reshape(tf.constant(1.), (1,))
+        pos_label = tf.reshape(tf.constant(1.), (1,))
         neg_tokenized = tf.py_function(lambda x, y: tf.constant(self.tokenize(x[0].numpy().decode('utf-8'),
                                                                          y[0].numpy().decode('utf-8')
                                                                          )), [desc_, neg_],
@@ -179,6 +179,6 @@ class mono_bert_tokenizer_map():
         neg_label = tf.reshape(tf.constant(0.), (1,))
 
         return (
-            ((pos_ids, pos_attention, pos_type), post_label),
+            ((pos_ids, pos_attention, pos_type), pos_label),
             ((neg_ids, neg_attention, neg_type), neg_label)
         )

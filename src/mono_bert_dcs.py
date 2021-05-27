@@ -22,7 +22,7 @@ class MONOBERT_DCS(CodeSearchManager):
         self.data_path = data_path
         self.tokenizer = None
         self.max_len = 90
-        self.chunk_size = data_generator.DSC_NUM_ELEMENTS
+        self.chunk_size = 600000 #data_generator.DSC_NUM_ELEMENTS
         self.bert_layer = None
         self.vocab_desc = None
         self.vocab_tokens = None
@@ -249,8 +249,8 @@ class MONOBERT_DCS(CodeSearchManager):
 
     def load_dataset(self, batch_size=32):
         # ds output is (desc, code, neg_code) strings
-        ds = data_generator.get_dcs_dataset(self.data_path + "train.tokens.h5",
-                                       self.data_path + "train.desc.h5", self.vocab_desc, self.vocab_tokens, max_len=self.chunk_size)
+        ds = data_generator.get_dcs_dataset(self.data_path + "train.desc.h5", self.data_path + "train.tokens.h5",
+                                        self.vocab_desc, self.vocab_tokens, max_len=self.chunk_size)
 
         # Tokenize the dataset
         ds = ds.map(data_generator.mono_bert_tokenizer_map(tokenize, monobert.max_len))
@@ -263,81 +263,6 @@ class MONOBERT_DCS(CodeSearchManager):
 
         return ds
 
-
-class dcs_generator():
-    def __init__(self, desc_path, code_path, vocab_desc, vocab_code, max_len=-1):
-        # Load code
-        self.vocab_code = vocab_code
-        self.vocab_desc = vocab_desc
-
-        code_table = tables.open_file(code_path)
-        self.code_data = code_table.get_node('/phrases')[:].astype(np.int)
-        self.code_index = code_table.get_node('/indices')[:]
-
-        desc_table = tables.open_file(desc_path)
-        self.desc_data = desc_table.get_node('/phrases')[:].astype(np.int)
-        self.desc_index = desc_table.get_node('/indices')[:]
-        self.total_len = self.code_index.shape[0]
-        self.data_len = max_len
-
-        if max_len == -1 or max_len > self.total_len:
-            self.data_len = self.total_len
-
-        code_table.close()
-
-    def __call__(self):
-
-        for offset in range(0, self.data_len):
-            code_len, code_pos = self.code_index[offset]['length'], self.code_index[offset]['pos']
-            desc_len, desc_pos = self.desc_index[offset]['length'], self.desc_index[offset]['pos']
-
-            random_index = random.randint(0, self.total_len - 1)
-            neg_len, neg_pos = self.code_index[random_index]['length'], self.code_index[random_index]['pos']
-
-            extracted_code = self.code_data[code_pos:code_pos + code_len]
-            extracted_desc = self.desc_data[desc_pos:desc_pos + desc_len]
-            extracted_neg_code = self.code_data[neg_pos:neg_pos + neg_len]
-
-            desc = (" ".join([self.vocab_desc[x] for x in extracted_desc]))
-            code = (" ".join([self.vocab_code[x] for x in extracted_code]))
-            neg_code = (" ".join([self.vocab_code[x] for x in extracted_neg_code]))
-
-            yield desc, code, neg_code
-
-
-class trainig_tokenize_map():
-    def __init__(self):
-        pass
-
-    def __call__(self, desc, code, neg):
-        desc_ = tf.reshape(desc, (1,))
-        code_ = tf.reshape(code, (1,))
-        neg_ = tf.reshape(neg, (1,))
-
-        pos_tokenized = tf.py_function(lambda x, y: tf.constant(tokenize(x[0].numpy().decode('utf-8'),
-                                                                         y[0].numpy().decode('utf-8')
-                                                                         )), [desc_, code_],
-                                       tf.int32)
-
-        pos_ids = tf.squeeze(tf.slice(pos_tokenized, [0, 0], [1, 90]), [0])
-        pos_attention = tf.squeeze(tf.slice(pos_tokenized, [1, 0], [1, 90]), [0])
-        pos_type = tf.squeeze(tf.slice(pos_tokenized, [2, 0], [1, 90]), [0])
-
-        neg_tokenized = tf.py_function(lambda x, y: tf.constant(tokenize(x[0].numpy().decode('utf-8'),
-                                                                         y[0].numpy().decode('utf-8')
-                                                                         )), [desc_, neg_],
-                                       tf.int32)
-
-        neg_ids = tf.squeeze(tf.slice(neg_tokenized, [0, 0], [1, 90]), [0])
-        neg_attention = tf.squeeze(tf.slice(neg_tokenized, [1, 0], [1, 90]), [0])
-        neg_type = tf.squeeze(tf.slice(neg_tokenized, [2, 0], [1, 90]), [0])
-
-
-
-        return (
-            ((pos_ids, pos_attention, pos_type), tf.reshape(tf.constant(0.), (1,))),
-            ((neg_ids, neg_attention, neg_type), tf.reshape(tf.constant(0.), (1,)))
-        )
 
 def tokenize(string, second):
     encoded = tokenizer.batch_encode_plus(
@@ -382,9 +307,10 @@ if __name__ == "__main__":
 
     tokenizer = monobert.generate_tokenizer()
 
-    BATCH_SIZE = 16
+    BATCH_SIZE = 1
 
     ds = monobert.load_dataset(BATCH_SIZE)
+
 
     #monobert.load_weights(script_path + "/../final_weights/monobert_dcs_weights")
 
