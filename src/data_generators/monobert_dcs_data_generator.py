@@ -69,13 +69,11 @@ class DataGeneratorDCSMonoBERT(keras.utils.Sequence):
 
             desc = ( (" ".join([self.vocab_desc[x] for x in extracted_desc])) )
 
-            input_ids, attention_mask, token_type_ids, = self.tokenize_sentences(desc, code)
+            input_ids, attention_mask, token_type_ids, = self.__tokenize(desc, code)
 
             tokenized_ids.append(input_ids)
             tokenized_mask.append(attention_mask)
             tokenized_type.append(token_type_ids)
-
-
 
         return [np.array(tokenized_ids),
                 np.array(tokenized_mask),
@@ -88,16 +86,19 @@ class DataGeneratorDCSMonoBERT(keras.utils.Sequence):
     def len(self):
         return self.__len__()
 
-    def tokenize_sentences(self, input1_str, input2_str):
-        # return concated_ids, masks, type_ids
-        tokenized = self.tokenizer.batch_encode_plus(
+    def __tokenize(self, desc, code):
+        return DataGeneratorDCSMonoBERT.tokenize_sentences(self.tokenizer, self.max_length, desc, code)
+
+    @staticmethod
+    def tokenize_sentences(tokenizer, max_length, input1_str, input2_str):
+        tokenized = tokenizer.batch_encode_plus(
             [[input1_str, input2_str]],
             add_special_tokens=True,
-            max_length=90,
+            max_length=max_length,
             return_attention_mask=True,
             return_token_type_ids=True,
-            pad_to_max_length=True,
             return_tensors="np",
+            padding='max_length'
         )
 
         return tokenized["input_ids"][0], tokenized["attention_mask"][0], tokenized["token_type_ids"][0]

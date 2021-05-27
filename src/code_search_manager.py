@@ -47,8 +47,8 @@ class CodeSearchManager():
                 count += 1
         return count / len(results)
 
-    def train(self, training_set, weights_path, epochs=1, batch_size=None):
-        self.training_model.fit(training_set, epochs=epochs, verbose=1, batch_size=batch_size)
+    def train(self, training_set, weights_path, epochs=1, batch_size=None, steps_per_epoch=None):
+        self.training_model.fit(training_set, epochs=epochs, verbose=1, batch_size=batch_size, steps_per_epoch=steps_per_epoch)
         self.training_model.save_weights(weights_path)
         print("Model saved!")
 

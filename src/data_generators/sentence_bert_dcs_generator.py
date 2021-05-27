@@ -66,7 +66,6 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
             extracted_desc = self.desc_data[pos:pos + len_].copy()
             desc = ((" ".join([self.vocab_desc[x] for x in extracted_desc])))
 
-            # A half of the entries are going to be negative examples
             random_index = random.randint(0, self.full_data_len - 1)
             len_, pos = self.code_index[random_index]['length'], self.code_index[random_index]['pos']
             extracted_neg_code = self.code_data[pos:pos + len_].copy()
@@ -104,14 +103,19 @@ class DataGeneratorDCSBERT(keras.utils.Sequence):
 
     @staticmethod
     def tokenize_sentences(tokenizer, max_length, input_str):
+        _input_str1 = input_str
+        if isinstance(input_str, str):
+            _input_str1 = [input_str]
+
         tokenized = tokenizer.batch_encode_plus(
-            [input_str],
+            _input_str1,
             add_special_tokens=True,
             max_length=max_length,
             return_attention_mask=True,
             return_token_type_ids=True,
-            pad_to_max_length=True,
             return_tensors="np",
+            padding='max_length'
         )
-
-        return tokenized["input_ids"][0], tokenized["attention_mask"][0], tokenized["token_type_ids"][0]
+        if isinstance(input_str, str):
+            return tokenized["input_ids"][0], tokenized["attention_mask"][0], tokenized["token_type_ids"][0]
+        return tokenized["input_ids"], tokenized["attention_mask"], tokenized["token_type_ids"]

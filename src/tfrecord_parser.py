@@ -55,19 +55,19 @@ class TFRecordParser():
         return string
 
     @staticmethod
-    def to_tfrecord_features(tokenized_code, tokenized_doc, tokenized_negative, similarity):
+    def to_tfrecord_features(string_doc, string_code, string_negative_code, similarity):
 
         # int_list1 = tf.train.Int64List(value = [data_record['int_data']])
-        _tokenized_doc = tf.train.Int64List(value=tokenized_doc.flatten())
-        _tokenized_code = tf.train.Int64List(value=tokenized_code.flatten())
-        _tokenized_negative = tf.train.Int64List(value=tokenized_negative.flatten())
+        _string_doc = tf.train.BytesList(value=[string_doc.encode('utf-8')])
+        _string_code = tf.train.BytesList(value=[string_code.encode('utf-8')])
+        _string_doc_neg = tf.train.BytesList(value=[string_negative_code.encode('utf-8')])
 
         _similarity = tf.train.FloatList(value=[similarity])
 
         feature_key_value_pair = {
-            'tokenized_code': tf.train.Feature(int64_list=_tokenized_code),
-            'tokenized_doc': tf.train.Feature(int64_list=_tokenized_doc),
-            'tokenized_negative': tf.train.Feature(int64_list=_tokenized_negative),
+            'string_doc': tf.train.Feature(bytes_list=_string_doc),
+            'string_code': tf.train.Feature(bytes_list=_string_code),
+            'string_code_negative': tf.train.Feature(bytes_list=_string_doc_neg),
             'similarity': tf.train.Feature(float_list=_similarity)
         }
 
@@ -92,40 +92,38 @@ class TFRecordParser():
                 line_a = json.loads(str(d, encoding='utf-8'))
 
                 docstring_tokens = " ".join(line_a["docstring_tokens"])
-                #code_tokens = " ".join(line_a["code_tokens"])
-                code_tokens = ' '.join([TFRecordParser.format_str(token) for token in line_a['code_tokens']])
+                code_tokens = " ".join(line_a["code_tokens"])
+                #code_tokens = ' '.join([TFRecordParser.format_str(token) for token in line_a['code_tokens']])
 
-                docstring_tokens = TFRecordParser.clean_str(docstring_tokens)
-                code_tokens = TFRecordParser.clean_str(code_tokens)
 
-                if len(docstring_tokens) == 0 or len(code_tokens) == 0:
-                    continue
+                #docstring_tokens = TFRecordParser.clean_str(docstring_tokens)
+                #code_tokens = TFRecordParser.clean_str(code_tokens)
 
-                tokenized_doc, doc_segment_id = TFRecordParser.tokenize(docstring_tokens)
-                tokenized_code, code_segment_id  = TFRecordParser.tokenize(code_tokens)
+                #if len(docstring_tokens) == 0 or len(code_tokens) == 0:
+                #    continue
+
+                #tokenized_doc, doc_segment_id = TFRecordParser.tokenize(docstring_tokens)
+                #tokenized_code, code_segment_id  = TFRecordParser.tokenize(code_tokens)
 
                 # Negative sampling
                 ramdom_example = data_shuffled.pop(0)
                 ramdom_example = json.loads(str(ramdom_example, encoding='utf-8'))
-                negative_description = " ".join(ramdom_example["docstring_tokens"])
+                negative_code = " ".join(ramdom_example["code_tokens"])
 
-                negative_description = TFRecordParser.clean_str(negative_description)
+                #negative_description = TFRecordParser.clean_str(negative_description)
 
-                if len(negative_description) == 0:
-                    continue
+                #if len(negative_description) == 0:
+                #    continue
 
-                tokenized_negative, neg_segment_id = TFRecordParser.tokenize(negative_description)
+                #tokenized_negative, neg_segment_id = TFRecordParser.tokenize(negative_description)
 
                 # Create Example object with features
-                example = TFRecordParser.to_tfrecord_features(tokenized_doc, tokenized_code, tokenized_negative, 0.0)
+                example = TFRecordParser.to_tfrecord_features(docstring_tokens, code_tokens, negative_code, 0.0)
 
                 tfwriter.write(example.SerializeToString())
 
     @staticmethod
     def tokenize(string):
-        print(string)
-        print(len(string.split(" ")))
-        print(len(string))
         encoded = TFRecordParser.tokenizer.batch_encode_plus(
             [string],
             add_special_tokens = False,
@@ -150,15 +148,15 @@ class TFRecordParser():
     @staticmethod
     def extract_fn(data_record):
         features = {
-            'tokenized_code': tf.io.FixedLenFeature((90), tf.int64),
-            'tokenized_doc': tf.io.FixedLenFeature((90), tf.int64),
-            'tokenized_negative': tf.io.FixedLenFeature((90), tf.int64),
+            'string_doc': tf.io.FixedLenFeature([], tf.string),
+            'string_code': tf.io.FixedLenFeature([], tf.string),
+            'string_code_negative': tf.io.FixedLenFeature([], tf.string),
             'similarity': tf.io.FixedLenFeature([], tf.float32)
 
         }
         sample = tf.io.parse_single_example(data_record, features)
-        return (sample["tokenized_code"], sample["tokenized_doc"], sample["tokenized_negative"]), sample[
-            "similarity"]  # sample["tokenized_doc"], sample["tokenized_negative"]
+
+        return (sample["string_doc"], sample["string_code"], sample["string_code_negative"]), sample["similarity"]
 
     @staticmethod
     def generate_dataset(tfr_files, batch_size = 32):
@@ -172,17 +170,15 @@ class TFRecordParser():
             ignore_order
         )  # uses data as soon as it streams in, rather than in its original order
 
-        AUTOTUNE = tf.data.experimental.AUTOTUNE
+        #AUTOTUNE = tf.data.experimental.AUTOTUNE
 
         dataset = dataset.map(TFRecordParser.extract_fn)
-        dataset = dataset.shuffle(2048)
-        dataset = dataset.prefetch(buffer_size=AUTOTUNE)
 
-        dataset = dataset.batch(batch_size)
         return dataset
 
 
 if __name__ == "__main__":
+
     script_path = str(pathlib.Path(__file__).parent)+"/"
 
     python_files = sorted(Path(script_path+'../data/codesearchnet/python/final/jsonl/').glob('**/*.gz'))

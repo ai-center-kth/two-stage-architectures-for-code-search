@@ -5,7 +5,7 @@ import sys
 #subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
 
 import os
-#os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
@@ -155,7 +155,7 @@ class UNIF_DCS(CodeSearchManager):
     def test(self, results_path, number_of_elements=100):
 
         embedded_tokens, embedded_desc = self.generate_embeddings(number_of_elements)
-        self.test_embedded(embedded_tokens, embedded_desc, results_path)
+        #self.test_embedded(embedded_tokens, embedded_desc, results_path)
 
         df = pd.read_csv(self.data_path + "descriptions.csv", header=0)
         df = df.dropna()
@@ -261,22 +261,22 @@ if __name__ == "__main__":
 
         with strategy.scope():
             training_model, model_code, model_query, dot_model = unif_dcs.generate_model(embedding_size, number_code_tokens, number_desc_tokens, longer_code, longer_desc, 0.05)
-            unif_dcs.load_weights(script_path+"/../final_weights/unif_dcs_weights")
+            #unif_dcs.load_weights(script_path+"/../final_weights/unif_dcs_weights")
     else:
         training_model, model_code, model_query, dot_model = unif_dcs.generate_model(embedding_size, number_code_tokens,
                                                                                      number_desc_tokens, longer_code,
                                                                                      longer_desc, 0.6)
-        unif_dcs.load_weights(script_path + "/../final_weights/unif_dcs_weights")
+        unif_dcs.load_weights(script_path + "/../final_weights/unif_600000_dcs_weights")
 
     unif_dcs.get_vocabularies()
     #print("Not trained results")
     #unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/unif-dcs", longer_code, longer_desc, 100)
 
     #print("First epoch")
-    #unif_dcs.train(training_model, dataset, script_path+"/../weights/unif_dcs_weights", 1)
+    #unif_dcs.train(dataset, script_path+"/../weights/unif_600000_dcs_weights", 1)
 
     print("Trained results with 100")
-    unif_dcs.test(script_path+"/../results/sunif-dcs", 100)
+    unif_dcs.test(script_path+"/../results/unif_600000_dcs", 200)
 
     #print("Trained results with 200")
     #unif_dcs.test(model_code, model_query, dot_model, script_path+"/../results/unif-dcs", longer_code, longer_desc, 200)

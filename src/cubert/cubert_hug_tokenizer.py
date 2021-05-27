@@ -67,7 +67,7 @@ class CuBertHugTokenizer(BertTokenizer):
         return self._combined_func(text)
 
     def convert_tokens_to_string(self, tokens):
-        raise NotImplementedError
+        return " ".join(tokens)
 
     def _convert_token_to_id(self, token):
         return self.subword_tokenizer._subtoken_string_to_id[token]

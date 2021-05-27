@@ -2,57 +2,41 @@
 import sys
 import pathlib
 import os
+import time
 
+from tqdm import tqdm
 import pandas as pd
 import numpy as np
 import transformers
 import tensorflow as tf
 from tensorflow.keras import backend as K
-from transformers.models.bert import convert_bert_original_tf_checkpoint_to_pytorch
-from transformers import BertConfig, TFBertModel
 
-from .cubert.cubert_hug_tokenizer import CuBertHugTokenizer
 from .code_search_manager import CodeSearchManager
 
-class scu_bert_cdc(CodeSearchManager):
+class scode_bert_cdc(CodeSearchManager):
 
-    def __init__(self, data_path):
+    def __init__(self, data_path, data_chunk_id=0):
 
         self.data_path = data_path
         self.triplet_loss_margin = 0.6
         self.max_len = 128
-        self.batch_size = 1
+        self.batch_size = 32
 
         self.bert_layer = None
-        self.cubert_layer = None
+        self.code_bert_layer = None
         self.bert_tokenizer = None
-        self.cubert_tokenizer = None
+        self.code_tokenizer = None
 
         self.training_model, self.code_model, self.desc_model, self.dot_model = None, None, None, None
 
-    def get_bert_layers(self, path):
-        #self.bert_layer = transformers.TFBertModel.from_pretrained('bert-large-uncased')
-        self.cubert_layer = self.get_cubert_layer(path)
-        self.bert_layer = self.cubert_layer
+    def get_bert_layers(self):
+        self.bert_layer = transformers.TFBertModel.from_pretrained('bert-base-uncased')
+        self.code_bert_layer = transformers.TFRobertaModel.from_pretrained('microsoft/codebert-base')
 
-
-    def get_cubert_layer(self, path):
-        MODEL_PATH = path+'/../cuBERTconfig/20200621_Python_function_docstring__epochs_20__pre_trained_epochs_1_model.ckpt-6072.index'
-        MODEL_CONFIG = path+'/../cuBERTconfig/cubert_config.json'
-        MODEL_PATH_TORCH = path+'/../cuBERTconfig/20200621_Python_function_docstring__epochs_20__pre_trained_epochs_1_model.ckpt-6072.bin'
-        if not os.path.isfile(MODEL_PATH_TORCH):
-            convert_bert_original_tf_checkpoint_to_pytorch.convert_tf_checkpoint_to_pytorch(MODEL_PATH, MODEL_CONFIG, MODEL_PATH_TORCH)
-        model_config = BertConfig.from_json_file(MODEL_CONFIG)
-        return TFBertModel.from_pretrained(pretrained_model_name_or_path=MODEL_PATH_TORCH, from_pt=True,
-                                                   config=model_config)
-    def get_cubert_tokenizer(self, path):
-        MODEL_VOCAB = path + '/../cuBERTconfig/vocab.txt'
-        return CuBertHugTokenizer(MODEL_VOCAB)
-
-    def generate_tokenizers(self, path):
+    def generate_tokenizers(self):
         self.bert_tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
-        self.cubert_tokenizer = self.get_cubert_tokenizer(path)
-        self.bert_tokenizer = self.cubert_tokenizer
+        self.code_tokenizer = transformers.RobertaTokenizer.from_pretrained('microsoft/codebert-base')
+
 
     def generate_model(self):
 
@@ -93,7 +77,7 @@ class scu_bert_cdc(CodeSearchManager):
                                                  dtype=tf.int32,
                                                  name="segment_ids_code")
 
-        bert_code_output = self.cubert_layer([input_word_ids_code, input_mask_code, segment_ids_code])
+        bert_code_output = self.code_bert_layer([input_word_ids_code, input_mask_code, segment_ids_code])
 
         code_output = tf.keras.layers.Lambda(lambda x: mean_pooling(x[0], x[1]), name="code_pooling")(
             [bert_code_output[0], input_mask_code])
@@ -127,21 +111,20 @@ class scu_bert_cdc(CodeSearchManager):
         )
 
         # Training model
-        # Anchor
         good_ids_desc = tf.keras.layers.Input(shape=(self.max_len,),
                                               dtype=tf.int32)
         good_mask_desc = tf.keras.layers.Input(shape=(self.max_len,),
                                                dtype=tf.int32)
         good_seg_desc = tf.keras.layers.Input(shape=(self.max_len,),
                                               dtype=tf.int32)
-        # Positive sample
+
         good_ids_code = tf.keras.layers.Input(shape=(self.max_len,),
                                               dtype=tf.int32)
         good_mask_code = tf.keras.layers.Input(shape=(self.max_len,),
                                                dtype=tf.int32)
         good_seg_code = tf.keras.layers.Input(shape=(self.max_len,),
                                               dtype=tf.int32)
-        # Negative sample
+
         bad_ids_code = tf.keras.layers.Input(shape=(self.max_len,),
                                              dtype=tf.int32)
         bad_mask_code = tf.keras.layers.Input(shape=(self.max_len,),
@@ -155,7 +138,6 @@ class scu_bert_cdc(CodeSearchManager):
         bad_similarity = cos_model(
             [good_ids_desc, good_mask_desc, good_seg_desc, bad_ids_code, bad_mask_code, bad_seg_code])
 
-        # triplet loss function
         loss = tf.keras.layers.Lambda(lambda x: K.maximum(1e-6, self.triplet_loss_margin - x[0] + x[1]),
                                       output_shape=lambda x: x[0],
                                       name='loss')([good_similarity, bad_similarity])
@@ -183,17 +165,17 @@ class scu_bert_cdc(CodeSearchManager):
         # pandas shuffle
         neg_code_df = code_df.sample(frac=1).reset_index(drop=True)
 
-        ds = tf.data.Dataset.from_tensor_slices((desc_df.values, code_df.values, neg_code_df.values))
+        dataset = tf.data.Dataset.from_tensor_slices((desc_df.values, code_df.values, neg_code_df.values))
 
-        ds = ds.map(self.tokenize_map)
+        dataset = dataset.map(self.tokenize_map)
 
-        ds = ds.shuffle(2048)
+        #dataset = dataset.shuffle(2048)
+        dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
-        ds = ds.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+        dataset = dataset.batch(self.batch_size, drop_remainder=True)
 
-        ds = ds.batch(self.batch_size)
+        return dataset
 
-        return ds
 
     def tokenize_desc(self, input):
         _input = input
@@ -220,7 +202,7 @@ class scu_bert_cdc(CodeSearchManager):
         if isinstance(input, str):
             _input = [input]
 
-        encoded = self.cubert_tokenizer.batch_encode_plus(
+        encoded = self.code_tokenizer.batch_encode_plus(
             _input,
             add_special_tokens=True,
             max_length=self.max_len,
@@ -268,9 +250,10 @@ class scu_bert_cdc(CodeSearchManager):
 
     def train(self, dataset, weights_path, steps_per_epoch=None ):
         print("Training model...")
-        self.training_model.fit(dataset, epochs=2, steps_per_epoch=steps_per_epoch)
+        self.training_model.fit(dataset, epochs=10, steps_per_epoch=steps_per_epoch)
         self.training_model.save_weights(weights_path)
         print("Model saved!")
+
 
     def generate_embeddings(self, number_of_elements=100):
 
@@ -299,6 +282,7 @@ class scu_bert_cdc(CodeSearchManager):
 
 
 
+
 if __name__ == "__main__":
 
     args = sys.argv
@@ -307,9 +291,9 @@ if __name__ == "__main__":
 
     data_path = script_path + "/../data/code-docstring-corpus/"
 
-    code_search = scu_bert_cdc(data_path)
+    code_search = scode_bert_cdc(data_path)
 
-    code_search.generate_tokenizers( script_path)
+    code_search.generate_tokenizers()
 
     dataset = code_search.load_dataset()
 
@@ -317,21 +301,18 @@ if __name__ == "__main__":
     hardcoded_number_items = 109108
     steps_per_epoch = hardcoded_number_items // code_search.batch_size
 
-    code_search.get_bert_layers(script_path)
+    code_search.get_bert_layers()
 
     code_search.bert_layer.trainable = True
-    code_search.cubert_layer.trainable = False
+    code_search.code_bert_layer.trainable = True
 
     code_search.generate_model()
 
     print("Test untrained")
     code_search.test(script_path + "/../results/s_code_bert_cdc", number_of_elements=100)
 
-    #code_search.load_weights(script_path + "/../final_weights/s_cu_bert_cdc_weights")
+    #code_search.load_weights(script_path + "/../weights/s_code_bert_cdc")
 
-    #code_search.train(dataset, "../weights/s_cu_bert_cdc_weights", steps_per_epoch)
+    code_search.train(dataset.repeat(), "../weights/s_code_bert_cdc_weights", steps_per_epoch)
     print("Test trained")
-    #code_search.test(script_path + "/../results/s_code_bert_cdc", number_of_elements=100)
-
-
-
+    code_search.test(script_path + "/../results/s_code_bert_cdc", number_of_elements=100)

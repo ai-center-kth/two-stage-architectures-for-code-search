@@ -3,7 +3,6 @@ import subprocess
 import sys
 
 try:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pickle5"])
     import pickle5 as pickle
 except:
     import pickle
