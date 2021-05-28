@@ -257,18 +257,20 @@ class SBERT_DCS(CodeSearchManager):
     def load_dataset(self, batch_size=32):
 
         # ds output is (desc, code, neg_code) strings
-        ds = data_generator.get_dcs_dataset(self.data_path + "train.desc.h5", self.data_path + "train.tokens.h5",
-                                            self.vocab_desc, self.vocab_tokens, max_len=self.chunk_size)
+        #ds = data_generator.get_dcs_dataset(self.data_path + "train.desc.h5", self.data_path + "train.tokens.h5",
+        #                                    self.vocab_desc, self.vocab_tokens, max_len=self.chunk_size)
 
         # Tokenize the dataset
-        ds = ds.map(data_generator.sentece_bert_tokenizer_map(self.tokenize, self.max_len))
+        #ds = ds.map(data_generator.sentece_bert_tokenizer_map(self.tokenize, self.max_len))
 
         #ds = ds.map(self.mapeo)
 
-        ds = ds.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+        #ds = ds.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
-        ds = ds.batch(batch_size, drop_remainder=True)
-
+        #ds = ds.batch(batch_size, drop_remainder=True)
+        init_trainig, init_valid, end_valid = self.training_data_chunk(data_chunk_id)
+        return DataGeneratorDCSBERT(self.data_path + "train.tokens.h5", self.data_path + "train.desc.h5",
+                             batch_size, 0, 600000, 90, self.tokenizer, self.vocab_tokens, self.vocab_desc)
         return ds
 
 
@@ -315,8 +317,10 @@ if __name__ == "__main__":
 
     sbert_dcs.bert_layer.trainable = True
 
-    steps_per_epoch = sbert_dcs.chunk_size // BATCH_SIZE
-    sbert_dcs.train(dataset, script_path+"/../weights/sroberta_600k_0001_dcs_weights",  epochs=1, steps_per_epoch=steps_per_epoch)
+
+
+    #steps_per_epoch = sbert_dcs.chunk_size // BATCH_SIZE
+    sbert_dcs.train(dataset, script_path+"/../weights/sroberta_600k_0001_dcs_weights",  epochs=1, steps_per_epoch=None)
 
     print("Trained results with 100")
     sbert_dcs.test(script_path+"/../results/sentence-roberta", 500)
