@@ -41,11 +41,11 @@ class MONOBERT_DCS(CodeSearchManager):
         return self.vocab_tokens, self.vocab_desc
 
     def generate_tokenizer(self):
-        self.tokenizer = transformers.RobertaTokenizer.from_pretrained('roberta-base', do_lower_case=True)
+        self.tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
         return self.tokenizer
 
     def generate_bert_layer(self):
-        self.bert_layer = transformers.TFRobertaModel.from_pretrained('roberta-base')
+        self.bert_layer = transformers.TFBertModel.from_pretrained('bert-base-uncased')
         return self.bert_layer
 
     def generate_model(self):
@@ -63,7 +63,7 @@ class MONOBERT_DCS(CodeSearchManager):
 
         bert_output = self.bert_layer([input_word_ids, input_mask, segment_ids])
 
-        output = tf.keras.layers.Dense(1, activation="sigmoid")(bert_output[1])
+        output = tf.keras.layers.Dense(1, activation="sigmoid")(bert_output[0][:,0,:])
 
         model = tf.keras.models.Model(
             inputs=[input_word_ids, input_mask, segment_ids], outputs=output
@@ -144,13 +144,13 @@ class MONOBERT_DCS(CodeSearchManager):
         help.save_pickle(results_path + time.strftime("%Y%m%d-%H%M%S")+ "-rankings" + ".pkl", results)
 
     def test(self, results_path, number_of_elements=100 ):
-        #self.test_embedded(results_path, number_of_elements )
+        self.test_embedded(results_path, number_of_elements )
 
         df = pd.read_csv(self.data_path + "descriptions.csv", header=0)
         df = df.dropna()
         df = df[df["rowid"] < number_of_elements]
 
-        self.rephrasing_test(df, number_of_elements)
+        #self.rephrasing_test(df, number_of_elements)
 
     def generate_similarity_examples(self, results_path, number_of_elements=100):
 
@@ -307,15 +307,16 @@ if __name__ == "__main__":
 
     tokenizer = monobert.generate_tokenizer()
 
-    BATCH_SIZE = 1
+    BATCH_SIZE = 16
 
-    ds = monobert.load_dataset(BATCH_SIZE)
-
+    #ds = monobert.load_dataset(BATCH_SIZE)
+    ds = DataGeneratorDCSMonoBERT(data_path + "train.tokens.h5", data_path + "train.desc.h5",
+                                       16, 0, 600000, 90, monobert.tokenizer, monobert.vocab_tokens, monobert.vocab_desc)
 
     #monobert.load_weights(script_path + "/../final_weights/monobert_dcs_weights")
 
     steps_per_epoch = 2 * monobert.chunk_size // BATCH_SIZE
 
-    monobert.train(ds, script_path+"/../weights/monobert_dcs_weights", epochs=10, batch_size=None, steps_per_epoch=steps_per_epoch)
+    monobert.train(ds, script_path+"/../weights/monobert_600000k_dcs_weights", epochs=1, batch_size=None, steps_per_epoch=None)
 
     monobert.test("results/monobert", 100)
