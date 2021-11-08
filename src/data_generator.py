@@ -17,7 +17,7 @@ def get_dcs_dataset(desc_path, code_path, vocab_desc, vocab_code, max_len=-1):
                     tf.TensorSpec(shape=(), dtype=tf.string, name="neg_code")))
 
 # Total number elements this dataset
-DSC_NUM_ELEMENTS = 18223872
+DCS_NUM_ELEMENTS = 18223872
 
 # It generates a tf.dataset with Code-Docstring-corpus dataset (string)
 # Format: (desc, code, neg_code)
@@ -53,6 +53,7 @@ def get_csc_dataset(desc_path, code_path, max_len=-1):
     dataset = tf.data.Dataset.from_tensor_slices((desc_df.values, code_df.values, neg_code_df.values))
 
     return dataset
+
 
 class dcs_generator():
     def __init__(self, desc_path, code_path, vocab_desc, vocab_code, max_len=-1):
@@ -159,6 +160,11 @@ class mono_bert_tokenizer_map():
         code_ = tf.reshape(code, (1,))
         neg_ = tf.reshape(neg, (1,))
 
+        pos_tokenized = tf.py_function(lambda x, y: tf.constant(self.tokenize(x,
+                                                                              y
+                                                                              )), [desc_, code_],
+                                       tf.int32)
+
         pos_tokenized = tf.py_function(lambda x, y: tf.constant(self.tokenize(x[0].numpy().decode('utf-8'),
                                                                          y[0].numpy().decode('utf-8')
                                                                          )), [desc_, code_],
@@ -182,3 +188,30 @@ class mono_bert_tokenizer_map():
             ((pos_ids, pos_attention, pos_type), pos_label),
             ((neg_ids, neg_attention, neg_type), neg_label)
         )
+
+# From (desc, code, neg) to ((tokenized_desc, tokenized_code, tokenized_neg), label), without attention masks and segment ids
+class naive_format_map():
+    def __init__(self, desc_tokenizer, code_tokenizer):
+        self.desc_tokenizer = desc_tokenizer
+        self.code_tokenizer = code_tokenizer
+        pass
+
+    def __call__(self, desc, code, neg):
+        desc_ = tf.reshape(desc, (1,))
+        code_ = tf.reshape(code, (1,))
+        neg_ = tf.reshape(neg, (1,))
+
+        desc_tokenized = tf.py_function(lambda x: tf.constant(self.desc_tokenizer(x[0].numpy().decode('utf-8'))), [desc_],
+                                        tf.int32)
+        code_tokenized = tf.py_function(lambda x: tf.constant(self.code_tokenizer(x[0].numpy().decode('utf-8'))), [code_],
+                                        tf.int32)
+        neg_tokenized = tf.py_function(lambda x: tf.constant(self.code_tokenizer(x[0].numpy().decode('utf-8'))), [neg_],
+                                        tf.int32)
+
+        desc_tokenized = tf.squeeze(desc_tokenized)
+        code_tokenized = tf.squeeze(code_tokenized)
+        neg_tokenized = tf.squeeze(neg_tokenized)
+
+        label = tf.reshape(tf.constant(0.), (1,))
+
+        return (desc_tokenized, code_tokenized, neg_tokenized), label

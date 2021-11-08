@@ -1,7 +1,4 @@
 
-import subprocess
-import sys
-
 try:
     import pickle5 as pickle
 except:
