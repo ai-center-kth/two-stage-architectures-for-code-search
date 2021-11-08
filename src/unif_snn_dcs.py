@@ -8,9 +8,9 @@ from .search_models.sentence_search_model import Sentence_SearchModel
 from .search_models import models
 from . import data_generator, helper
 
-class UNIF_DCS(Sentence_SearchModel):
+class UNIF_SNN_DCS(Sentence_SearchModel):
 
-    def __init__(self, data_path, data_chunk_id=0):
+    def __init__(self, data_path):
         self.data_path = data_path
 
         # dataset info
@@ -28,26 +28,24 @@ class UNIF_DCS(Sentence_SearchModel):
         self.vocab_code, self.vocab_desc = None, None
         self.inverse_vocab_code, self.inverse_vocab_desc = None, None
 
+        self.hinge_loss_margin = 0.6
+        self.longer_sentence = 90
         self.embedding_size = 2048
-        self.number_code_tokens = 10001
-        self.number_desc_tokens = 10001
-        self.code_length = 90
-        self.desc_length = 90
-        self.hinge_loss_margin = 0.40
+        self.number_tokens = 13645
 
     def get_vocabularies(self):
-        self.inverse_vocab_code = helper.load_pickle(self.data_path + "vocab.tokens.pkl")
+        self.inverse_vocab_code = helper.load_pickle(self.data_path + "vocab.merged.pkl")
         self.vocab_code = {y: x for x, y in self.inverse_vocab_code.items()}
 
-        self.inverse_vocab_desc = helper.load_pickle(self.data_path + "vocab.desc.pkl")
+        self.inverse_vocab_desc = helper.load_pickle(self.data_path + "vocab.merged.pkl")
         self.vocab_desc = {y: x for x, y in self.inverse_vocab_desc.items()}
 
         return self.vocab_code, self.vocab_desc
 
     def get_model(self):
-        self.training_model, self.model_code, self.model_query, self.dot_model = models.unif_model(
-                        self.embedding_size, self.number_code_tokens, self.number_desc_tokens,
-                        self.code_length, self.desc_length, self.hinge_loss_margin)
+
+        self.training_model, self.model_code, self.model_query, self.dot_model = models.unif_snn_model(self.embedding_size, self.number_tokens ,
+             self.longer_sentence, self.hinge_loss_margin)
 
     def desc_tokenizer(self, desc):
         tokenized = []
@@ -91,9 +89,9 @@ if __name__ == "__main__":
 
     script_path = str(pathlib.Path(__file__).parent)
 
-    data_path = script_path + "/../data/deep-code-search/drive/"
+    data_path = script_path + "/../data/deep-code-search/processed/"
 
-    unif = UNIF_DCS(data_path)
+    unif = UNIF_SNN_DCS(data_path)
 
     unif.get_model()
 
@@ -107,11 +105,11 @@ if __name__ == "__main__":
 
     #unif.train(ds, script_path + "/../weights/unif-weights", epochs=1, steps_per_epoch=steps_per_epoch)
 
-    unif.load_weights(script_path + "/../kth_w/unif_600000_90_dcs_weights")
+    unif.load_weights(script_path + "/../kth_w/snn_600000_90_dcs_weights")
 
     test_ds = unif.load_dataset(data_path+"/test.desc.h5", data_path+"/test.tokens.h5", vocab_desc, vocab_code, 500)
 
-    unif.test(test_ds, script_path+"/../results/unif-results")
+    unif.test(test_ds, script_path+"/../results/snn-results")
 
 
 

@@ -1,56 +1,49 @@
 
-import os
 from tqdm import tqdm
 import numpy as np
 import time
 import random
-from . import help
+import pandas as pd
+from .. import helper
+from .code_search_manager import CodeSearchManager
 
-class CodeSearchManager():
+
+class Sentence_SearchModel(CodeSearchManager):
 
     def __init__(self):
-        self.training_model, self.code_model = None, None
-        self.desc_model, self.dot_model = None, None
-        self.chunk_size = 600000
+        self.model_code = None
+        self.model_query = None
+        self.dot_model = None
 
-    def get_dataset_meta(self):
+    def desc_tokenizer(self, desc):
         raise NotImplementedError(self)
 
-    def get_dataset_meta_hardcoded(self):
-        raise NotImplementedError()
+    def code_tokenizer(self, code):
+        raise NotImplementedError(self)
 
-    def generate_model(self):
-        raise NotImplementedError()
+    def test(self, test_ds, results_path):
 
-    def tokenize(self, sentence):
-        raise NotImplementedError()
+        embedded_desc, embedded_tokens = self.generate_embeddings(test_ds)
+        self.test_embedded(embedded_tokens, embedded_desc, results_path)
 
-    def load_weights(self, path):
-        if os.path.isfile(path + '.index'):
-            self.training_model.load_weights(path)
-            print("Weights loaded!")
-        else:
-            print("Warning! No weights loaded!")
+        df = pd.read_csv(self.data_path + "descriptions.csv", header=0)
+        df = df.dropna()
+        df = df[df["rowid"] < 100]
 
-    def training_data_chunk(self, id, valid_perc=1.0):
+        self.rephrasing_test(df, embedded_tokens, embedded_desc)
 
-        init_trainig = self.chunk_size * id
-        init_valid = int(self.chunk_size * id + self.chunk_size * valid_perc)
-        end_valid = int(self.chunk_size * id + self.chunk_size)
 
-        return init_trainig, init_valid, end_valid
+    def generate_embeddings(self, dataset):
 
-    def get_top_n(self, n, results):
-        count = 0
-        for r in results:
-            if results[r] < n:
-                count += 1
-        return count / len(results)
+        description = dataset.as_numpy_iterator().next()[0][0]
 
-    def train(self, training_set, weights_path, epochs=1, batch_size=None, steps_per_epoch=None):
-        self.training_model.fit(training_set, epochs=epochs, verbose=1, batch_size=batch_size, steps_per_epoch=steps_per_epoch)
-        self.training_model.save_weights(weights_path)
-        print("Model saved!")
+        code = dataset.as_numpy_iterator().next()[0][1]
+
+        print("Embedding tokens...")
+        embedded_tokens = self.model_code.predict(code)
+        embedded_desc = self.model_query.predict(description)
+
+        return embedded_desc, embedded_tokens
 
 
     def get_id_rank(self, rowid, embedded_tokens, embedded_desc):
@@ -102,7 +95,8 @@ class CodeSearchManager():
         f.write( str(top_1) + "," + str(top_3) + "," + str(top_5) + "\n")
         f.close()
 
-        help.save_pickle(results_path + time.strftime("%Y%m%d-%H%M%S")+ "-rankings" + ".pkl", results)
+        helper.save_pickle(results_path + time.strftime("%Y%m%d-%H%M%S")+ "-rankings" + ".pkl", results)
+
 
     def rephrasing_test(self, rephrased_descriptions_df, embedded_tokens, embedded_desc):
 
@@ -120,13 +114,10 @@ class CodeSearchManager():
 
             desc = row[1].values[2]
 
-            desc_ = self.tokenize(desc)
+            desc_ = self.desc_tokenizer(desc)
 
-            embedded_desc_copy[idx] = (self.desc_model.predict([np.array(desc_[0]).reshape((1, -1)),
-                                                            np.array(desc_[1]).reshape((1, -1)),
-                                                            np.array(desc_[2]).reshape((1, -1))
+            embedded_desc_copy[idx] = self.model_query.predict(np.array(desc_).reshape(1, -1))[0]
 
-                                                            ])[0])
 
             new_rank = self.get_id_rank(idx, embedded_tokens_copy, embedded_desc_copy)
 
@@ -144,6 +135,7 @@ class CodeSearchManager():
         print(self.get_top_n(3, new_ranking))
         print(self.get_top_n(5, new_ranking))
         return rephrased_ranking, new_ranking
+
 
     def generate_similarity_examples(self, embedded_tokens, embedded_desc, dot_model, results_path):
         f = open(results_path + time.strftime("%Y%m%d-%H%M%S")+ "-similarities" + ".csv", "a")
