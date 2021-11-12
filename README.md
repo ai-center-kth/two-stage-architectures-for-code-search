@@ -1,4 +1,4 @@
-# Code Search in Data Science projects
+# Two Stage Architectures for Code Search
 
 
 ## Dependencies
